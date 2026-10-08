@@ -1,6 +1,6 @@
 [project]
 name = "qdrant-full-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "MCP server for Qdrant: Qdrant Cloud account management (clusters, backups, API keys) plus data-plane tools (collections, points)."
 readme = "README.md"
 requires-python = ">=3.10"
