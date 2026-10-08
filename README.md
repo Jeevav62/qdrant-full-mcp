@@ -159,8 +159,12 @@ See `.env.example`. Never commit real values.
 
 ## Status and roadmap
 
-Read-only cloud tools are verified against the live API. Write tools are covered by mocked tests; try them on a
-throwaway cluster first.
+Verified against the live Qdrant Cloud API on a free-tier cluster: cluster create and update, restart, suspend and
+unsuspend, database API keys, and the data tools (collections, named and sparse vectors, upsert, dense, sparse and
+hybrid search, payload indexes, deletes).
+
+Not verified live yet: backups, backup schedules and restores (free-tier clusters do not support them), and cluster
+delete. Test those on a throwaway paid cluster first.
 
 Ideas for later: snapshots, named-vector search options (quantization, HNSW tuning), payload updates without
 re-upserting, collection aliases, cluster configuration settings, a PyPI release (`uvx qdrant-full-mcp`).
