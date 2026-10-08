@@ -201,3 +201,79 @@ def test_invalid_account_id_env(monkeypatch):
     monkeypatch.setenv("QDRANT_CLOUD_ACCOUNT_ID", "nope")
     with pytest.raises(ValueError, match="valid UUID"):
         cloud.list_clusters()
+
+
+# ---------------------------------------------------------------- v0.3
+
+
+def test_restore_to_new_cluster_dry_run_then_post(calls):
+    bid = "33333333-3333-3333-3333-333333333333"
+    calls.routes[("GET", f"/backups/{bid}")] = {"backup": {"clusterId": CID}}
+    out = cloud.restore_backup_to_new_cluster(bid, "restored-1")
+    assert out["dry_run"] and writes(calls) == []
+    with pytest.raises(ValueError):
+        cloud.restore_backup_to_new_cluster(bid, "no")  # too short
+    cloud.restore_backup_to_new_cluster(bid, "restored-1", confirm=True)
+    method, url, kw = writes(calls)[0]
+    assert method == "POST" and url.endswith(f"/backups/{bid}/clusters")
+    assert kw["params"] == {"cluster_name": "restored-1"}
+
+
+def test_create_collection_named_and_sparse(calls):
+    out = data.create_collection("c", named_vectors={"dense": {"size": 4, "distance": "Dot"}},
+                                 sparse_vectors=["sparse"])
+    assert out["would_create"] == {"vectors": {"dense": {"size": 4, "distance": "Dot"}},
+                                   "sparse_vectors": {"sparse": {}}}
+    data.create_collection("c", named_vectors={"dense": {"size": 4}}, sparse_vectors=["sparse"], confirm=True)
+    assert writes(calls)[0][2]["json"]["vectors"]["dense"]["distance"] == "Cosine"
+    for bad in [dict(), dict(vector_size=4, named_vectors={"d": {"size": 4}}),
+                dict(named_vectors={"d": {"size": 0}})]:
+        with pytest.raises(ValueError):
+            data.create_collection("c", **bad)
+
+
+def test_upsert_named_and_sparse_vectors(calls):
+    pt = {"id": 1, "vector": {"dense": [0.1, 0.2], "sparse": {"indices": [1, 3], "values": [0.5, 0.6]}}}
+    data.upsert_points("c", [pt], confirm=True)
+    assert writes(calls)[0][2]["json"]["points"][0]["vector"]["sparse"]["indices"] == [1, 3]
+    for bad in ({"id": 1, "vector": {}}, {"id": 1, "vector": {"s": {"indices": [1], "values": []}}},
+                {"id": 1, "vector": "x"}):
+        with pytest.raises(ValueError):
+            data.upsert_points("c", [bad])
+
+
+def test_query_sparse_and_exclusive_args(calls):
+    data.query_points("c", sparse_vector={"indices": [1], "values": [0.5]}, using="sparse")
+    assert calls[-1][2]["json"]["query"] == {"indices": [1], "values": [0.5]}
+    assert calls[-1][2]["json"]["using"] == "sparse"
+    with pytest.raises(ValueError):
+        data.query_points("c")
+    with pytest.raises(ValueError):
+        data.query_points("c", vector=[1.0], sparse_vector={"indices": [1], "values": [1.0]})
+    with pytest.raises(ValueError, match="using"):
+        data.query_points("c", sparse_vector={"indices": [1], "values": [0.5]})
+
+
+def test_hybrid_query_body(calls):
+    data.hybrid_query_points("c", [0.1, 0.2], {"indices": [1], "values": [0.5]}, fusion="dbsf", limit=5)
+    body = calls[-1][2]["json"]
+    assert body["query"] == {"fusion": "dbsf"} and len(body["prefetch"]) == 2
+    assert {p["using"] for p in body["prefetch"]} == {"dense", "sparse"}
+    data.hybrid_query_points("c", [0.1], {"indices": [1], "values": [0.5]})
+    assert calls[-1][2]["json"]["query"] == {"rrf": {}}
+    with pytest.raises(ValueError):
+        data.hybrid_query_points("c", [0.1], {"indices": [1], "values": [0.5]}, fusion="mix")
+
+
+def test_payload_indexes(calls):
+    assert data.create_payload_index("c", "city", "keyword")["dry_run"]
+    assert writes(calls) == []
+    data.create_payload_index("c", "tenant", "keyword", is_tenant=True, confirm=True)
+    method, url, kw = writes(calls)[0]
+    assert method == "PUT" and url.endswith("/collections/c/index")
+    assert kw["json"] == {"field_name": "tenant", "field_schema": {"type": "keyword", "is_tenant": True}}
+    data.delete_payload_index("c", "meta.tags[].name", confirm=True)
+    assert writes(calls)[-1][0] == "DELETE"
+    for args in [("c", "city", "nonsense"), ("c", "../x", "keyword"), ("c", "n", "integer", True)]:
+        with pytest.raises(ValueError):
+            data.create_payload_index(*args)

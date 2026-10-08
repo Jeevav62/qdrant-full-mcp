@@ -1,0 +1,13 @@
+{
+  "name": "qdrant-full-mcp",
+  "description": "Qdrant Cloud management and data tools for Claude Code.",
+  "owner": { "name": "Jeevav62", "url": "https://github.com/Jeevav62" },
+  "plugins": [
+    {
+      "name": "qdrant",
+      "source": "./",
+      "description": "Qdrant Cloud management and data-plane tools as an MCP server, plus a usage skill.",
+      "version": "0.3.0"
+    }
+  ]
+}
