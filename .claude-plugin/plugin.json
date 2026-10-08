@@ -1,9 +1,33 @@
-{
-  "name": "qdrant",
-  "version": "0.3.0",
-  "description": "Manage Qdrant Cloud (clusters, backups, API keys) and work with Qdrant collections and points from Claude Code.",
-  "author": { "name": "Jeevav62", "url": "https://github.com/Jeevav62" },
-  "repository": "https://github.com/Jeevav62/qdrant-full-mcp",
-  "license": "MIT",
-  "keywords": ["qdrant", "mcp", "vector-database", "qdrant-cloud"]
+﻿{
+    "name":  "qdrant",
+    "version":  "0.3.0",
+    "description":  "Manage Qdrant Cloud (clusters, backups, API keys) and work with Qdrant collections and points from Claude Code.",
+    "author":  {
+                   "name":  "Jeevav62",
+                   "url":  "https://github.com/Jeevav62"
+               },
+    "repository":  "https://github.com/Jeevav62/qdrant-full-mcp",
+    "license":  "MIT",
+    "keywords":  [
+                     "qdrant",
+                     "mcp",
+                     "vector-database",
+                     "qdrant-cloud"
+                 ],
+    "mcpServers":  {
+                       "qdrant":  {
+                                      "command":  "uvx",
+                                      "args":  [
+                                                   "--from",
+                                                   "${CLAUDE_PLUGIN_ROOT}",
+                                                   "qdrant-full-mcp"
+                                               ],
+                                      "env":  {
+                                                  "QDRANT_CLOUD_API_KEY":  "${QDRANT_CLOUD_API_KEY:-}",
+                                                  "QDRANT_CLOUD_ACCOUNT_ID":  "${QDRANT_CLOUD_ACCOUNT_ID:-}",
+                                                  "QDRANT_URL":  "${QDRANT_URL:-}",
+                                                  "QDRANT_API_KEY":  "${QDRANT_API_KEY:-}"
+                                              }
+                                  }
+                   }
 }
