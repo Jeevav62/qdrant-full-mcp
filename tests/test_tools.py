@@ -71,7 +71,7 @@ def test_dry_runs_never_write(calls):
     cloud.suspend_cluster(CID)
     cloud.create_backup(CID)
     cloud.delete_backup(CID)
-    cloud.create_backup_schedule(CID, "@daily")
+    cloud.create_backup_schedule(CID, "0 3 * * *")
     cloud.create_database_api_key(CID, "my key")
     cloud.delete_database_api_key(CID, PKG)
     data.create_collection("c", 4)
@@ -113,7 +113,7 @@ def test_update_sends_mask(calls):
     calls.routes[("GET", f"/clusters/{CID}")] = {"cluster": {"name": "prod"}}
     cloud.update_cluster(CID, number_of_nodes=2, confirm=True)
     method, url, kw = writes(calls)[0]
-    assert method == "PUT" and kw["json"]["updateMask"] == "configuration.numberOfNodes"
+    assert method == "PUT" and kw["json"]["updateMask"] == {"paths": ["configuration.number_of_nodes"]}
 
 
 def test_data_plane_uses_api_key_header(calls):
@@ -142,7 +142,7 @@ def test_missing_config_messages(monkeypatch):
 def test_api_error_is_mapped(monkeypatch):
     monkeypatch.setattr(common.httpx, "request", lambda m, u, **k: httpx.Response(
         403, json={"message": "nope"}, request=httpx.Request(m, u)))
-    with pytest.raises(ValueError, match="403.*lacks permission"):
+    with pytest.raises(ValueError, match="403.*forbidden"):
         cloud.list_clusters()
 
 
@@ -277,3 +277,13 @@ def test_payload_indexes(calls):
     for args in [("c", "city", "nonsense"), ("c", "../x", "keyword"), ("c", "n", "integer", True)]:
         with pytest.raises(ValueError):
             data.create_payload_index(*args)
+
+
+def test_backup_schedule_cron_and_retention(calls):
+    out = cloud.create_backup_schedule(CID, "0 3 * * *")
+    assert out["would_create"]["retentionPeriod"] == "604800s"  # default 7 days, required by the API
+    for bad in ("@daily", "every day", "0 3 * *"):
+        with pytest.raises(ValueError):
+            cloud.create_backup_schedule(CID, bad)
+    with pytest.raises(ValueError):
+        cloud.create_backup_schedule(CID, "0 3 * * *", retention_days=0)
