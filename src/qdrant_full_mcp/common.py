@@ -104,7 +104,7 @@ def _raise_for(r: httpx.Response, what: str) -> None:
         detail = r.text
     hint = {
         401: " (invalid or missing key)",
-        403: " (key lacks permission for this operation)",
+        403: " (forbidden: the key lacks permission, or the feature is not available on this plan)",
         404: " (not found)",
     }.get(r.status_code, "")
     raise QdrantError(f"{what} {r.status_code}{hint}: {str(detail)[:500]}")
