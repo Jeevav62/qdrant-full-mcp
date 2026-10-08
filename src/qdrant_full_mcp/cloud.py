@@ -299,6 +299,7 @@ def delete_backup(backup_id: str, confirm: bool = False) -> Any:
 @tool
 def restore_backup(backup_id: str, confirm_cluster_name: str) -> Any:
     """Restore a backup INTO ITS ORIGINAL CLUSTER, overwriting that cluster's current data. DESTRUCTIVE.
+    Prefer restore_backup_to_new_cluster unless the user explicitly wants an in-place overwrite.
     The user must confirm the target cluster's exact name, passed as confirm_cluster_name; it must match or nothing
     happens. Use list_backups first to pick the backup."""
     uuid(backup_id, "backup_id")
@@ -310,6 +311,23 @@ def restore_backup(backup_id: str, confirm_cluster_name: str) -> Any:
         raise QdrantError(f"Confirmation failed: confirm_cluster_name {confirm_cluster_name!r} does not match the "
                           f"target cluster's name {real!r}. Nothing restored.")
     return cloud_call("POST", f"{BACKUPS()}/backups/{backup_id}/restore")
+
+
+@tool
+def restore_backup_to_new_cluster(backup_id: str, new_cluster_name: str, confirm: bool = False) -> Any:
+    """Create a NEW cluster from a backup. Safer than restore_backup because the source cluster is untouched.
+    COSTS MONEY (a new cluster is billed). new_cluster_name: 4-64 chars [a-zA-Z0-9_-]. confirm=false = dry run
+    showing the backup; call with confirm=true only after the user approves."""
+    uuid(backup_id, "backup_id")
+    if not re.match(r"^[a-zA-Z0-9_-]{4,64}$", new_cluster_name or ""):
+        raise QdrantError("new_cluster_name must be 4-64 chars of letters, numbers, '_' or '-'.")
+    if not confirm:
+        r = cloud_call("GET", f"{BACKUPS()}/backups/{backup_id}")
+        return _dry("Nothing created. Get user approval, then call again with confirm=true.",
+                    new_cluster_name=new_cluster_name, backup=r.get("backup", r))
+    require_writable()
+    return cloud_call("POST", f"/api/cluster/v1/accounts/{acct()}/backups/{backup_id}/clusters",
+                      params={"cluster_name": new_cluster_name})
 
 
 @tool
