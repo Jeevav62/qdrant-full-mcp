@@ -11,10 +11,7 @@ NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{2,64}$")
 VERSION_RE = re.compile(r"^(v\d+\.\d+\.\d+|latest)$")
 KEY_NAME_RE = re.compile(r"^[\w\s-]{4,128}$")
 DISPLAY_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{4,64}$")
-CRON_RE = re.compile(
-    r"^(@(annually|yearly|monthly|weekly|daily|hourly))|(@every (\d+(ns|us|µs|ms|s|m|h))+)"
-    r"|(([\d*/,-]+ ){4}[\d*/,-]+)$"
-)
+CRON_RE = re.compile(r"^([\d*/,-]+ ){4}[\d*/,-]+$")  # 5-field cron; the API rejects '@daily' style (verified live)
 
 CLUSTERS = lambda: f"/api/cluster/v1/accounts/{acct()}/clusters"  # noqa: E731
 BACKUPS = lambda: f"/api/cluster/backup/v1/accounts/{acct()}"  # noqa: E731
@@ -185,10 +182,10 @@ def update_cluster(cluster_id: str, name: Optional[str] = None, number_of_nodes:
         if not 1 <= number_of_nodes <= 100:
             raise QdrantError("number_of_nodes must be 1..100.")
         cfg["numberOfNodes"] = number_of_nodes
-        mask.append("configuration.numberOfNodes")
+        mask.append("configuration.number_of_nodes")
     if package_id is not None:
         cfg["packageId"] = uuid(package_id, "package_id")
-        mask.append("configuration.packageId")
+        mask.append("configuration.package_id")
     if version is not None:
         if not VERSION_RE.match(version):
             raise QdrantError("version must be 'latest' or like 'v1.15.0'.")
@@ -198,10 +195,10 @@ def update_cluster(cluster_id: str, name: Optional[str] = None, number_of_nodes:
         if additional_disk_gib < 0:
             raise QdrantError("additional_disk_gib must be >= 0.")
         cfg["additionalResources"] = {"disk": additional_disk_gib}
-        mask.append("configuration.additionalResources")
+        mask.append("configuration.additional_resources")
     if allowed_ip_source_ranges is not None:
         cfg["allowedIpSourceRanges"] = cidrs(allowed_ip_source_ranges)
-        mask.append("configuration.allowedIpSourceRanges")
+        mask.append("configuration.allowed_ip_source_ranges")
     if not mask:
         raise QdrantError("Nothing to update: pass at least one field to change.")
     if cfg:
@@ -211,7 +208,8 @@ def update_cluster(cluster_id: str, name: Optional[str] = None, number_of_nodes:
         return _dry("Nothing changed. Get user approval, then call again with confirm=true.",
                     cluster_name=current.get("name"), fields_to_change=mask, new_values=cluster)
     require_writable()
-    return cloud_call("PUT", f"{CLUSTERS()}/{cluster_id}", body={"cluster": cluster, "updateMask": ",".join(mask)})
+    # Gateway wants updateMask as {"paths": [...]} with snake_case field paths (verified live).
+    return cloud_call("PUT", f"{CLUSTERS()}/{cluster_id}", body={"cluster": cluster, "updateMask": {"paths": mask}})
 
 
 @tool
@@ -331,18 +329,18 @@ def restore_backup_to_new_cluster(backup_id: str, new_cluster_name: str, confirm
 
 
 @tool
-def create_backup_schedule(cluster_id: str, schedule: str, retention_days: Optional[int] = None,
+def create_backup_schedule(cluster_id: str, schedule: str, retention_days: int = 7,
                            confirm: bool = False) -> Any:
-    """Create an automatic backup schedule. schedule: cron ('0 3 * * *') or '@daily', '@weekly', '@every 12h'.
-    retention_days 1..365 (omit = keep forever; storage grows). confirm=false = dry run."""
+    """Create an automatic backup schedule (not available on free-tier clusters).
+    schedule: 5-field cron, e.g. '0 3 * * *' = daily at 03:00 UTC. retention_days 1..365 (required by the API,
+    default 7). confirm=false = dry run."""
     uuid(cluster_id, "cluster_id")
     if not CRON_RE.match(schedule or ""):
-        raise QdrantError("schedule must be a 5-field cron expression or @daily/@weekly/@hourly/@every <dur>.")
-    s: dict[str, Any] = {"accountId": acct(), "clusterId": cluster_id, "schedule": schedule}
-    if retention_days is not None:
-        if not 1 <= retention_days <= 365:
-            raise QdrantError("retention_days must be 1..365.")
-        s["retentionPeriod"] = f"{retention_days * 86400}s"
+        raise QdrantError("schedule must be a 5-field cron expression like '0 3 * * *'.")
+    if not 1 <= retention_days <= 365:
+        raise QdrantError("retention_days must be 1..365.")
+    s: dict[str, Any] = {"accountId": acct(), "clusterId": cluster_id, "schedule": schedule,
+                         "retentionPeriod": f"{retention_days * 86400}s"}
     if not confirm:
         return _dry("Nothing created. Get user approval, then call again with confirm=true.", would_create=s)
     require_writable()
