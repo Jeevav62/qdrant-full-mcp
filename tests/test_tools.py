@@ -397,3 +397,32 @@ def test_missing_fastembed_gives_install_hint(monkeypatch):
     monkeypatch.setattr(text, "_models", {})
     with pytest.raises(common.QdrantError, match=r"qdrant-full-mcp\[embed\]"):
         text.embed(["x"])
+
+
+def test_store_text_rejects_dimension_mismatch_before_writing(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/notes/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/notes")] = {"result": {"config": {"params": {
+        "vectors": {"size": 768, "distance": "Cosine"}}}}}
+    with pytest.raises(ValueError, match="768-dimension"):
+        text.store_text("notes", ["hello"], confirm=True)
+    assert not writes(calls)
+
+
+def test_store_text_checks_layout_before_embedding(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/c/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/c")] = {"result": {"config": {"params": {"vectors": {
+        "dense": {"size": 3}, "other": {"size": 3}}}}}}
+    with pytest.raises(ValueError, match="none is"):
+        text.store_text("c", ["hello"], confirm=True)
+    assert not fake_embed
+
+
+def test_text_module_alone_registers_only_text_tools():
+    import os, subprocess, sys
+    code = ("from qdrant_full_mcp import server; server.load_modules(); "
+            "print(sorted(t.name for t in server.mcp._tool_manager.list_tools()))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         env={**os.environ, "QDRANT_MCP_MODULES": "text"}).stdout
+    assert out.strip() == "['find_text', 'store_text']"
