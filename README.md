@@ -5,6 +5,8 @@ your data (collections, points, vector and hybrid search) from Claude Code, Code
 
 - **Cloud management:** create, scale, suspend, restart, back up, restore and delete clusters through the official Qdrant Cloud API.
 - **Data plane:** create collections, upsert and search points, hybrid dense + sparse search, payload indexes.
+- **Plain-text memory:** `store_text` and `find_text` embed text locally (FastEmbed), so you can store and search
+  without making vectors yourself. Works with collections made by the official `mcp-server-qdrant`.
 - **Safe by default:** every change is a dry run until confirmed; destructive actions need the exact resource name.
 - **One variable to start:** just your Cloud Management Key. The account ID is detected automatically.
 
@@ -107,6 +109,24 @@ export QDRANT_API_KEY_<CLUSTER_ID>=the-database-key    # several (UUID uppercase
 Pass `cluster_id` to any data tool and the endpoint is looked up for you. For a local or self-hosted Qdrant, set
 `QDRANT_URL` (e.g. `http://localhost:6333`) and `QDRANT_API_KEY` instead and skip `cluster_id`.
 
+## Store and search plain text
+
+`store_text` and `find_text` embed text on your machine with [FastEmbed](https://github.com/qdrant/fastembed), the same
+approach as the official `mcp-server-qdrant`, so no vectors are needed. They need the optional `embed` extra:
+
+```bash
+claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-key -- uvx --from "qdrant-full-mcp[embed] @ git+https://github.com/Jeevav62/qdrant-full-mcp" qdrant-full-mcp
+```
+
+(After the PyPI release this is `uvx --from "qdrant-full-mcp[embed]" qdrant-full-mcp`.) The first call downloads the
+model (about 90 MB, cached afterwards). Set `QDRANT_URL` and `QDRANT_API_KEY`, or pass `cluster_id`, as in the data tools.
+Then ask: *"Remember in collection `notes` that refunds take 5 business days"* and *"Search `notes` for how long
+refunds take."* The collection is created on first store.
+
+- Default model `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions); change it with `EMBEDDING_MODEL`.
+- Layout matches the official server: a named vector `fast-<model>` and payload `{"document", "metadata"}`.
+- Without the extra, every other tool works and the text tools tell you how to install it.
+
 ## Example prompts
 
 - "List my Qdrant Cloud clusters." / "Show the available AWS regions."
@@ -117,6 +137,7 @@ Pass `cluster_id` to any data tool and the endpoint is looked up for you. For a 
 - "Create a read-only database API key for cluster X that expires in 90 days."
 - "Create a collection `docs` with a dense vector (768, Cosine) and a sparse vector for hybrid search."
 - "Add a keyword index on `tenant_id` in `docs`." / "How many points are in `docs`?"
+- "Store these three FAQ answers in collection `faq`." / "Search `faq` for how refunds work."
 - "Delete cluster `old-test`." (you must confirm the exact name)
 
 ## Tools
@@ -133,6 +154,23 @@ overwrites), `create_backup_schedule`, `delete_backup_schedule`, `create_databas
 
 **Data, changes things:** `create_collection` (single, named and sparse vectors), `delete_collection`,
 `create_payload_index`, `delete_payload_index`, `upsert_points`, `delete_points`
+
+**Text, needs the `embed` extra:** `store_text` (embeds and upserts, creates the collection if missing), `find_text`
+(embeds the query and searches)
+
+## Compared with the official mcp-server-qdrant
+
+| | official `mcp-server-qdrant` | `qdrant-full-mcp` |
+|---|---|---|
+| Store and find text with built-in embeddings | yes | yes (`store_text`, `find_text`, optional extra) |
+| Cluster management (create, scale, suspend, delete) | no | yes |
+| Backups, schedules, restores, database API keys | no | yes |
+| Collections with named and sparse vectors, payload indexes | no | yes |
+| Dense, sparse and hybrid (RRF, DBSF) search with your own vectors | no | yes |
+| Dry run and confirmation on writes, read-only mode | read-only flag | yes |
+| Transports | stdio, SSE, streamable HTTP | stdio |
+
+The text tools use the same collection layout, so the two servers can share a collection.
 
 ## Safety
 
@@ -151,7 +189,8 @@ overwrites), `create_backup_schedule`, `delete_backup_schedule`, `create_databas
 | `QDRANT_API_KEY` | data tools | database API key (optional for unauthenticated local Qdrant) |
 | `QDRANT_API_KEY_<CLUSTER_ID>` | data tools | per-cluster key, wins over `QDRANT_API_KEY` |
 | `QDRANT_URL` | data tools | only without `cluster_id`, e.g. `http://localhost:6333` |
-| `QDRANT_MCP_MODULES` | optional | `cloud,data` (default) |
+| `QDRANT_MCP_MODULES` | optional | `cloud,data,text` (default) |
+| `EMBEDDING_MODEL` | text tools | FastEmbed model, default `sentence-transformers/all-MiniLM-L6-v2` |
 | `QDRANT_MCP_READ_ONLY` | optional | `1` blocks writes |
 | `QDRANT_CLOUD_API_URL` | optional | default `https://api.cloud.qdrant.io` |
 
@@ -161,7 +200,8 @@ See `.env.example`. Never commit real values.
 
 Verified against the live Qdrant Cloud API on a free-tier cluster: cluster create and update, restart, suspend and
 unsuspend, database API keys, and the data tools (collections, named and sparse vectors, upsert, dense, sparse and
-hybrid search, payload indexes, deletes).
+hybrid search, payload indexes, deletes). The text tools (`store_text`, `find_text`) were verified end to end against a
+local Qdrant 1.19 with the real FastEmbed model; they have not been run against a Cloud cluster yet.
 
 Not verified live yet: backups, backup schedules and restores (free-tier clusters do not support them), and cluster
 delete. Test those on a throwaway paid cluster first.
@@ -170,12 +210,12 @@ Ideas for later: snapshots, named-vector search options (quantization, HNSW tuni
 re-upserting, collection aliases, cluster configuration settings, a PyPI release (`uvx qdrant-full-mcp`).
 
 **Not covered by design:** inviting or removing members, roles and billing; hybrid-cloud environments and serverless
-spaces; text-to-vector embedding (bring your own vectors).
+spaces; embedding models other than FastEmbed's (for the other tools, bring your own vectors).
 
 ## Development
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,embed]"
 pytest
 ```
 
