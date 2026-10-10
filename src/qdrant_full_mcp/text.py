@@ -13,7 +13,7 @@ import uuid as _uuid
 from typing import Any, Optional
 
 from .common import QdrantError, data_call, require_writable, segment, tool
-from .data import PointId, _col, _ids, _limit, _result
+from .datautil import PointId, _col, _ids, _limit, _result
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 MAX_TEXTS = 256
@@ -82,6 +82,14 @@ def _target_vector(vectors: Any, name: str, collection: str) -> Optional[str]:
                       "Use store/find only on collections created by these tools, or use upsert_points/query_points.")
 
 
+def _check_size(vectors: Any, target: Optional[str], dim: int, collection: str) -> None:
+    cfg = vectors if target is None else (vectors.get(target) or {})
+    size = cfg.get("size") if isinstance(cfg, dict) else None
+    if isinstance(size, int) and size != dim:
+        raise QdrantError(f"Collection {collection!r} expects {size}-dimension vectors but model {model_name()!r} "
+                          f"produces {dim}. Use the model the collection was created with (EMBEDDING_MODEL).")
+
+
 @tool
 def store_text(collection: str, texts: list[str], metadata: Optional[list[dict]] = None,
                ids: Optional[list[PointId]] = None, confirm: bool = False, cluster_id: Optional[str] = None) -> Any:
@@ -101,14 +109,16 @@ def store_text(collection: str, texts: list[str], metadata: Optional[list[dict]]
         return {"dry_run": True, "message": "Validated; nothing embedded or written. Call again with confirm=true.",
                 "collection": collection, "text_count": len(items), "model": model_name(), "vector_name": name}
     require_writable()
-    vecs = embed(items)
     vectors = _vectors_config(collection, cluster_id)
+    target = name if vectors is None else _target_vector(vectors, name, collection)  # fail before embedding
+    vecs = embed(items)
     created = False
     if vectors is None:
         _result(data_call("PUT", f"/collections/{_col(collection)}", cluster_id=cluster_id, body={
             "vectors": {name: {"size": len(vecs[0]), "distance": "Cosine"}}}))
-        vectors, created = {name: {"size": len(vecs[0])}}, True
-    target = _target_vector(vectors, name, collection)
+        created = True
+    else:
+        _check_size(vectors, target, len(vecs[0]), collection)
     points = []
     for i, (text, vec) in enumerate(zip(items, vecs)):
         points.append({
@@ -136,7 +146,9 @@ def find_text(collection: str, query: str, limit: int = 5, filter: Optional[dict
     if vectors is None:
         raise QdrantError(f"Collection {collection!r} does not exist. Use store_text first or list_collections.")
     target = _target_vector(vectors, name, collection)
-    body: dict[str, Any] = {"query": embed([query])[0], "limit": limit, "with_payload": True}
+    qvec = embed([query])[0]
+    _check_size(vectors, target, len(qvec), collection)
+    body: dict[str, Any] = {"query": qvec, "limit": limit, "with_payload": True}
     if target is not None:
         body["using"] = segment(target, "vector name")
     if filter:
