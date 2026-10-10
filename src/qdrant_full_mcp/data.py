@@ -2,7 +2,7 @@
 
 Target: pass cluster_id (endpoint auto-resolved via Cloud API; key from QDRANT_API_KEY_<ID> or QDRANT_API_KEY),
 or set QDRANT_URL + QDRANT_API_KEY (database API key, not the cloud management key).
-Embedding is out of scope: queries and upserts take ready-made vectors.
+These tools take ready-made vectors; for plain text (embedded locally) use store_text and find_text in text.py.
 """
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ def query_points(collection: str, vector: Optional[list[float]] = None, sparse_v
                  limit: int = 10, filter: Optional[dict] = None,
                  using: Optional[str] = None, score_threshold: Optional[float] = None,
                  with_payload: bool = True, with_vector: bool = False, cluster_id: Optional[str] = None) -> Any:
-    """Nearest-neighbour search by a ready-made query vector (this server does not embed text).
+    """Nearest-neighbour search by a ready-made query vector (for plain-text queries use find_text).
     Pass exactly one of: vector (dense list) or sparse_vector ({"indices":[...],"values":[...]}).
     'using' selects a named vector (required for sparse and for named-vector collections).
     Optional Qdrant filter object narrows candidates. For dense+sparse together use hybrid_query_points."""
@@ -160,7 +160,7 @@ def hybrid_query_points(collection: str, dense_vector: list[float], sparse_vecto
     """Hybrid search: runs a dense and a sparse query, then fuses the rankings.
     The collection must have a named dense vector (dense_using) and a named sparse vector (sparse_using).
     sparse_vector: {"indices":[...], "values":[...]}. fusion: 'rrf' (reciprocal rank fusion, default) or 'dbsf'.
-    Needs ready-made vectors; this server does not embed text."""
+    Needs ready-made vectors."""
     if fusion not in ("rrf", "dbsf"):
         raise QdrantError("fusion must be 'rrf' or 'dbsf'.")
     pf = {"limit": _limit(prefetch_limit, 1000)}
