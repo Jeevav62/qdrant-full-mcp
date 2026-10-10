@@ -176,7 +176,7 @@ The text tools use the same collection layout, so the two servers can share a co
 
 - Every mutating tool is a **dry run unless `confirm=true`**, and the tool descriptions tell the model to get your approval first.
 - Irreversible tools need the exact name: `delete_cluster` and `restore_backup` (`confirm_cluster_name`), `delete_collection` (`confirm_collection_name`).
-- `QDRANT_MCP_READ_ONLY=1` blocks every confirmed write. `QDRANT_MCP_MODULES=cloud` or `=data` loads one module only.
+- `QDRANT_MCP_READ_ONLY=1` blocks every confirmed write. `QDRANT_MCP_MODULES` (e.g. `cloud`, `data,text`) loads only the modules you list.
 - Keys come from environment variables only and are never logged or echoed. A new database key's secret is shown once by Qdrant.
 - Ids and paths are validated before any request. Prefer least-privilege keys.
 
