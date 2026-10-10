@@ -6,19 +6,13 @@ These tools take ready-made vectors; for plain text (embedded locally) use store
 """
 from __future__ import annotations
 
-from typing import Any, Optional, Union
+from typing import Any, Optional
 from urllib.parse import quote
 
 from .common import QdrantError, data_call, require_writable, segment, tool
+from .datautil import PointId, _col, _ids, _limit, _result
 
 DISTANCES = ("Cosine", "Euclid", "Dot", "Manhattan")
-PointId = Union[int, str]
-
-
-def _col(name: str) -> str:
-    return quote(segment(name, "collection"), safe="")
-
-
 def _vector(v: Any, field: str = "vector") -> list[float]:
     if not isinstance(v, list) or not v or len(v) > 65536 or not all(isinstance(x, (int, float)) for x in v):
         raise QdrantError(f"{field} must be a non-empty list of numbers (max 65536).")
@@ -59,25 +53,6 @@ def _field(name: str) -> str:
     if not isinstance(name, str) or not re.match(r"^[A-Za-z0-9_.\[\]-]{1,255}$", name):
         raise QdrantError(f"Invalid payload field name: {name!r}.")
     return name
-
-
-def _ids(ids: list[PointId]) -> list[PointId]:
-    if not isinstance(ids, list) or not ids or len(ids) > 1000:
-        raise QdrantError("ids must be a list of 1..1000 point ids.")
-    for i in ids:
-        if isinstance(i, bool) or not (isinstance(i, int) and i >= 0 or isinstance(i, str) and i):
-            raise QdrantError(f"Invalid point id {i!r}: use unsigned integers or UUID strings.")
-    return ids
-
-
-def _limit(n: int, hi: int = 100) -> int:
-    if not 1 <= n <= hi:
-        raise QdrantError(f"limit must be 1..{hi}.")
-    return n
-
-
-def _result(r: Any) -> Any:
-    return r.get("result", r) if isinstance(r, dict) else r
 
 
 # ---------------------------------------------------------------- read-only
