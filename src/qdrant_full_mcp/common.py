@@ -158,15 +158,19 @@ def cluster_endpoint(cluster_id: str) -> str:
     return _endpoint_cache[cluster_id]
 
 
-def cluster_key(cluster_id: str) -> str:
-    """Per-cluster database key QDRANT_API_KEY_<ID_WITH_UNDERSCORES>, falling back to QDRANT_API_KEY."""
+def cluster_key(cluster_id: str) -> tuple[str, str]:
+    """Database key for a Cloud cluster and where it came from: QDRANT_API_KEY_<ID_WITH_UNDERSCORES>, then a key
+    remembered by create_database_api_key (keystore), then QDRANT_API_KEY."""
+    from . import keystore
     per = "QDRANT_API_KEY_" + cluster_id.replace("-", "_").upper()
-    key = (os.environ.get(per) or os.environ.get("QDRANT_API_KEY") or "").strip()
-    if not key:
-        raise QdrantError(
-            f"No database API key for cluster {cluster_id}. Set {per} (or QDRANT_API_KEY). Create one with "
-            "create_database_api_key; the management key cannot access data.")
-    return key
+    for source, key in (("env", os.environ.get(per, "")), ("remembered", keystore.get(cluster_id)),
+                        ("env", os.environ.get("QDRANT_API_KEY", ""))):
+        if key and key.strip():
+            return key.strip(), source
+    raise QdrantError(
+        f"No database API key for cluster {cluster_id}. Ask to create one with create_database_api_key (it is "
+        f"remembered automatically, no restart needed), or set {per} / QDRANT_API_KEY. The management key cannot "
+        "access data.")
 
 
 def data_call(method: str, path: str, *, params: Optional[dict] = None, body: Any = None,
@@ -177,7 +181,15 @@ def data_call(method: str, path: str, *, params: Optional[dict] = None, body: An
     Without: QDRANT_LOCAL_PATH (in-process database, see local.py), or QDRANT_URL + QDRANT_API_KEY (key optional).
     """
     if cluster_id:
-        url, key = cluster_endpoint(cluster_id), cluster_key(cluster_id)
+        url, (key, source) = cluster_endpoint(cluster_id), cluster_key(cluster_id)
+        try:
+            return _send(method, f"{url}{path}", {"api-key": key}, params, body, "Qdrant database")
+        except QdrantError as e:
+            if source == "remembered" and " 401 " in f" {e} ":
+                raise QdrantError(f"{e} The remembered key for this cluster was rejected (expired or revoked). "
+                                  "Create a new one with create_database_api_key, or remove it with "
+                                  "forget_database_api_key.") from None
+            raise
     elif os.environ.get("QDRANT_LOCAL_PATH", "").strip():
         if os.environ.get("QDRANT_URL", "").strip():
             raise QdrantError("Set either QDRANT_URL or QDRANT_LOCAL_PATH, not both.")
