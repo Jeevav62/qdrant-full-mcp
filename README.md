@@ -26,6 +26,9 @@ the dependencies (about 40 seconds, cached afterwards), which is longer than som
 uvx qdrant-full-mcp --help
 ```
 
+On a slow connection, if a download times out, give uv more time: `UV_HTTP_TIMEOUT=180 uvx qdrant-full-mcp --help`
+(PowerShell: `$env:UV_HTTP_TIMEOUT=180; uvx qdrant-full-mcp --help`).
+
 **3. Add it to your client:**
 
 ### Claude Code
