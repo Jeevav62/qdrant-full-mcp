@@ -127,6 +127,12 @@ Then just say *"Remember that refunds take 5 business days"* and later *"How lon
 `COLLECTION_NAME` set, storing into that collection happens in one step and the collection is created on first use;
 any other collection keeps the dry-run-then-confirm flow. Without it, name the collection in your request.
 
+- **No server at all:** set `QDRANT_LOCAL_PATH=./qdrant-data` instead of `QDRANT_URL` and Qdrant runs inside the MCP
+  server, storing data in that folder (`:memory:` keeps it in RAM). Every data and text tool works the same. Good for
+  learning and small projects; switch to a real cluster later by changing one variable.
+- `TOOL_STORE_DESCRIPTION` and `TOOL_FIND_DESCRIPTION` replace the tool descriptions, e.g. *"Store a reusable code
+  snippet with its description"*, to turn the memory into something specific. `QDRANT_SEARCH_LIMIT` sets the default
+  number of results (5).
 - The first text call downloads the model (about 90 MB, cached afterwards).
 - Default model `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions); change it with `EMBEDDING_MODEL`.
 - Layout matches the official server: a named vector `fast-<model>` and payload `{"document", "metadata"}`, so both
@@ -143,6 +149,13 @@ qdrant-full-mcp --transport sse                           # older SSE clients
 
 It binds to `127.0.0.1` by default. There is no built-in authentication and the server holds your Qdrant keys, so if
 you bind to another address (`--host 0.0.0.0`), put an authenticating proxy in front of it.
+
+With Docker (the image includes the default embedding model and serves streamable HTTP on port 8000):
+
+```bash
+docker build -t qdrant-full-mcp .
+docker run -p 127.0.0.1:8000:8000 -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key   -e COLLECTION_NAME=memory qdrant-full-mcp
+```
 
 ## Example prompts
 
@@ -181,6 +194,9 @@ searches)
 |---|---|---|
 | Store and find text with built-in embeddings | yes | yes (`store_text`, `find_text`) |
 | Default collection via `COLLECTION_NAME`, one-step store | yes | yes |
+| Local mode without a server (`QDRANT_LOCAL_PATH`) | yes (store/find) | yes (all data and text tools) |
+| Custom tool descriptions, default search limit | yes | yes (same variable names) |
+| Docker image | yes | yes |
 | Cluster management (create, scale, suspend, delete) | no | yes |
 | Backups, schedules, restores, database API keys | no | yes |
 | Collections with named and sparse vectors, payload indexes | no | yes |
@@ -194,7 +210,7 @@ The text tools use the same collection layout, so the two servers can share a co
 
 - Every mutating tool is a **dry run unless `confirm=true`**, and the tool descriptions tell the model to get your approval first.
 - Irreversible tools need the exact name: `delete_cluster` and `restore_backup` (`confirm_cluster_name`), `delete_collection` (`confirm_collection_name`).
-- `QDRANT_MCP_READ_ONLY=1` blocks every confirmed write. `QDRANT_MCP_MODULES` (e.g. `cloud`, `data,text`) loads only the modules you list.
+- `QDRANT_MCP_READ_ONLY=1` (or `QDRANT_READ_ONLY=1`) blocks every confirmed write. `QDRANT_MCP_MODULES` (e.g. `cloud`, `data,text`) loads only the modules you list.
 - Keys come from environment variables only and are never logged or echoed. A new database key's secret is shown once by Qdrant.
 - Ids and paths are validated before any request. Prefer least-privilege keys.
 
@@ -207,11 +223,15 @@ The text tools use the same collection layout, so the two servers can share a co
 | `QDRANT_API_KEY` | data tools | database API key (optional for unauthenticated local Qdrant) |
 | `QDRANT_API_KEY_<CLUSTER_ID>` | data tools | per-cluster key, wins over `QDRANT_API_KEY` |
 | `QDRANT_URL` | data tools | only without `cluster_id`, e.g. `http://localhost:6333` |
+| `QDRANT_LOCAL_PATH` | data tools | run without a server: a folder, or `:memory:`; instead of `QDRANT_URL` |
 | `QDRANT_MCP_MODULES` | optional | `cloud,data,text` (default) |
 | `COLLECTION_NAME` | text tools | default collection; stores into it skip the dry run |
 | `EMBEDDING_MODEL` | text tools | FastEmbed model, default `sentence-transformers/all-MiniLM-L6-v2` |
-| `QDRANT_MCP_READ_ONLY` | optional | `1` blocks writes |
+| `QDRANT_MCP_READ_ONLY` | optional | `1` blocks writes (`QDRANT_READ_ONLY` also works) |
+| `QDRANT_SEARCH_LIMIT` | text tools | default number of `find_text` results, 1..100 (default 5) |
+| `TOOL_STORE_DESCRIPTION`, `TOOL_FIND_DESCRIPTION` | text tools | replace the tool descriptions |
 | `QDRANT_MCP_TRANSPORT` | optional | `stdio` (default), `sse` or `streamable-http`; same as `--transport` |
+| `FASTMCP_SERVER_HOST`, `FASTMCP_SERVER_PORT` | optional | HTTP bind address and port (`FASTMCP_HOST`/`FASTMCP_PORT` also work) |
 | `QDRANT_CLOUD_API_URL` | optional | default `https://api.cloud.qdrant.io` |
 
 See `.env.example`. Never commit real values.
@@ -222,7 +242,9 @@ Verified against the live Qdrant Cloud API on a free-tier cluster: cluster creat
 unsuspend, database API keys, and the data tools (collections, named and sparse vectors, upsert, dense, sparse and
 hybrid search, payload indexes, deletes). The text tools were verified end to end through the MCP protocol (stdio and
 streamable HTTP) against a local Qdrant 1.19 with the real FastEmbed model, including a first run with an empty model
-cache; they have not been run against a Cloud cluster yet.
+cache. Local mode (`QDRANT_LOCAL_PATH`) was verified for every data tool, including dense, sparse and hybrid search, and
+through the MCP protocol; the Docker image was verified over HTTP from a second container. The text tools have not been
+run against a Cloud cluster yet.
 
 Not verified live yet: backups, backup schedules and restores (free-tier clusters do not support them), and cluster
 delete. Test those on a throwaway paid cluster first.
