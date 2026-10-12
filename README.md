@@ -19,12 +19,19 @@ Everything the official `mcp-server-qdrant` does (store and find text) is includ
 **1. Get a key.** Qdrant Cloud Console -> *Access Management* -> *Cloud Management Keys* -> create one.
 (Least privilege is fine: read-only permissions are enough for the read tools.)
 
-**2. Install.** Requires [`uv`](https://docs.astral.sh/uv/getting-started/installation/). Pick your client:
+**2. Download once.** Requires [`uv`](https://docs.astral.sh/uv/getting-started/installation/). The first run fetches
+the dependencies (about 40 seconds, cached afterwards), which is longer than some clients wait for a server to start:
+
+```bash
+uvx qdrant-full-mcp --help
+```
+
+**3. Add it to your client:**
 
 ### Claude Code
 
 ```bash
-claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-management-key -- uvx --from git+https://github.com/Jeevav62/qdrant-full-mcp qdrant-full-mcp
+claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-management-key -- uvx qdrant-full-mcp
 ```
 
 Check with `claude mcp list`, or `/mcp` inside Claude Code. Then try: *"List my Qdrant Cloud clusters."*
@@ -44,7 +51,7 @@ With the plugin, set `QDRANT_CLOUD_API_KEY` in your environment before starting 
 ### Codex
 
 ```bash
-codex mcp add qdrant --env QDRANT_CLOUD_API_KEY=your-management-key -- uvx --from git+https://github.com/Jeevav62/qdrant-full-mcp qdrant-full-mcp
+codex mcp add qdrant --env QDRANT_CLOUD_API_KEY=your-management-key -- uvx qdrant-full-mcp
 ```
 
 Or edit `~/.codex/config.toml` by hand:
@@ -52,7 +59,8 @@ Or edit `~/.codex/config.toml` by hand:
 ```toml
 [mcp_servers.qdrant]
 command = "uvx"
-args = ["--from", "git+https://github.com/Jeevav62/qdrant-full-mcp", "qdrant-full-mcp"]
+args = ["qdrant-full-mcp"]
+startup_timeout_sec = 60
 
 [mcp_servers.qdrant.env]
 QDRANT_CLOUD_API_KEY = "your-management-key"
@@ -67,7 +75,7 @@ Verify with `codex mcp list`.
   "mcpServers": {
     "qdrant": {
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/Jeevav62/qdrant-full-mcp", "qdrant-full-mcp"],
+      "args": ["qdrant-full-mcp"],
       "env": { "QDRANT_CLOUD_API_KEY": "your-management-key" }
     }
   }
@@ -86,7 +94,7 @@ Verify with `codex mcp list`.
     "qdrant": {
       "type": "stdio",
       "command": "uvx",
-      "args": ["--from", "git+https://github.com/Jeevav62/qdrant-full-mcp", "qdrant-full-mcp"],
+      "args": ["qdrant-full-mcp"],
       "env": { "QDRANT_CLOUD_API_KEY": "your-management-key" }
     }
   }
@@ -132,7 +140,7 @@ approach as the official `mcp-server-qdrant`, so no vectors are needed. Nothing 
 For a simple agent memory, set a default collection:
 
 ```bash
-claude mcp add qdrant -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key -e COLLECTION_NAME=memory   -- uvx --from git+https://github.com/Jeevav62/qdrant-full-mcp qdrant-full-mcp
+claude mcp add qdrant -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key -e COLLECTION_NAME=memory   -- uvx qdrant-full-mcp
 ```
 
 Then just say *"Remember that refunds take 5 business days"* and later *"How long do refunds take?"*. With
@@ -271,7 +279,7 @@ Not verified live yet: backups, backup schedules and restores (free-tier cluster
 delete. Test those on a throwaway paid cluster first.
 
 Ideas for later: snapshots, named-vector search options (quantization, HNSW tuning), payload updates without
-re-upserting, collection aliases, cluster configuration settings, a PyPI release (`uvx qdrant-full-mcp`).
+re-upserting, collection aliases, cluster configuration settings.
 
 **Not covered by design:** inviting or removing members, roles and billing; hybrid-cloud environments and serverless
 spaces; embedding models other than FastEmbed's (for the other tools, bring your own vectors).
