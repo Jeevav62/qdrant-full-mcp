@@ -287,3 +287,142 @@ def test_backup_schedule_cron_and_retention(calls):
             cloud.create_backup_schedule(CID, bad)
     with pytest.raises(ValueError):
         cloud.create_backup_schedule(CID, "0 3 * * *", retention_days=0)
+
+
+# ------------------------------------------------------------------ text tools
+
+
+@pytest.fixture
+def fake_embed(monkeypatch):
+    from qdrant_full_mcp import text
+    seen = []
+
+    def fake(texts, model=None):
+        seen.append(list(texts))
+        return [[0.1, 0.2, 0.3] for _ in texts]
+
+    monkeypatch.setattr(text, "embed", fake)
+    return seen
+
+
+def test_store_text_dry_run_does_not_embed_or_write(calls, fake_embed):
+    from qdrant_full_mcp import text
+    out = text.store_text("notes", ["hello"])
+    assert out["dry_run"] and out["vector_name"] == "fast-all-minilm-l6-v2"
+    assert not fake_embed and not calls
+
+
+def test_store_text_creates_collection_and_writes_named_vector(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/notes/exists")] = {"result": {"exists": False}}
+    out = text.store_text("notes", ["hello", "world"], metadata=[{"a": 1}, {"a": 2}], confirm=True)
+    assert out["stored"] == 2 and out["collection_created"] is True
+    create = [c for c in calls if c[0] == "PUT" and c[1].endswith("/collections/notes")][0]
+    assert create[2]["json"]["vectors"] == {"fast-all-minilm-l6-v2": {"size": 3, "distance": "Cosine"}}
+    pts = [c for c in calls if c[1].endswith("/points")][0][2]["json"]["points"]
+    assert pts[0]["payload"] == {"document": "hello", "metadata": {"a": 1}}
+    assert set(pts[0]["vector"]) == {"fast-all-minilm-l6-v2"}
+
+
+def test_store_text_into_unnamed_collection_uses_plain_vector(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/notes/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/notes")] = {"result": {"config": {"params": {
+        "vectors": {"size": 3, "distance": "Cosine"}}}}}
+    text.store_text("notes", ["hello"], confirm=True)
+    pts = [c for c in calls if c[1].endswith("/points")][0][2]["json"]["points"]
+    assert pts[0]["vector"] == [0.1, 0.2, 0.3]
+
+
+def test_store_text_validation(calls, fake_embed):
+    from qdrant_full_mcp import text
+    with pytest.raises(ValueError):
+        text.store_text("notes", [])
+    with pytest.raises(ValueError):
+        text.store_text("notes", ["a", "b"], metadata=[{}])
+    with pytest.raises(ValueError):
+        text.store_text("notes", ["a"], ids=[1, 2])
+    with pytest.raises(ValueError):
+        text.store_text("a/b", ["a"], confirm=True)
+
+
+def test_store_text_blocked_in_read_only(calls, fake_embed, monkeypatch):
+    from qdrant_full_mcp import text
+    monkeypatch.setenv("QDRANT_MCP_READ_ONLY", "1")
+    with pytest.raises(ValueError, match="read-only"):
+        text.store_text("notes", ["hello"], confirm=True)
+    assert not calls
+
+
+def test_find_text_queries_named_vector_and_shapes_result(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/notes/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/notes")] = {"result": {"config": {"params": {"vectors": {
+        "fast-all-minilm-l6-v2": {"size": 3, "distance": "Cosine"}}}}}}
+    calls.routes[("POST", "/collections/notes/points/query")] = {"result": {"points": [
+        {"id": "1", "score": 0.9, "payload": {"document": "hello", "metadata": {"a": 1}}}]}}
+    hits = text.find_text("notes", "hi", limit=3, filter={"must": []})
+    assert hits == [{"id": "1", "score": 0.9, "document": "hello", "metadata": {"a": 1}}]
+    body = [c for c in calls if c[1].endswith("/points/query")][0][2]["json"]
+    assert body["using"] == "fast-all-minilm-l6-v2" and body["limit"] == 3 and body["query"] == [0.1, 0.2, 0.3]
+
+
+def test_find_text_missing_collection(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/nope/exists")] = {"result": {"exists": False}}
+    with pytest.raises(ValueError, match="does not exist"):
+        text.find_text("nope", "hi")
+
+
+def test_find_text_rejects_foreign_vector_layout(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/c/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/c")] = {"result": {"config": {"params": {"vectors": {
+        "dense": {"size": 3}, "other": {"size": 3}}}}}}
+    with pytest.raises(ValueError, match="none is"):
+        text.find_text("c", "hi")
+
+
+def test_missing_fastembed_gives_install_hint(monkeypatch):
+    import builtins
+    from qdrant_full_mcp import text
+    real = builtins.__import__
+
+    def no_fastembed(name, *a, **kw):
+        if name == "fastembed":
+            raise ImportError
+        return real(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", no_fastembed)
+    monkeypatch.setattr(text, "_models", {})
+    with pytest.raises(common.QdrantError, match=r"qdrant-full-mcp\[embed\]"):
+        text.embed(["x"])
+
+
+def test_store_text_rejects_dimension_mismatch_before_writing(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/notes/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/notes")] = {"result": {"config": {"params": {
+        "vectors": {"size": 768, "distance": "Cosine"}}}}}
+    with pytest.raises(ValueError, match="768-dimension"):
+        text.store_text("notes", ["hello"], confirm=True)
+    assert not writes(calls)
+
+
+def test_store_text_checks_layout_before_embedding(calls, fake_embed):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/c/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/c")] = {"result": {"config": {"params": {"vectors": {
+        "dense": {"size": 3}, "other": {"size": 3}}}}}}
+    with pytest.raises(ValueError, match="none is"):
+        text.store_text("c", ["hello"], confirm=True)
+    assert not fake_embed
+
+
+def test_text_module_alone_registers_only_text_tools():
+    import os, subprocess, sys
+    code = ("from qdrant_full_mcp import server; server.load_modules(); "
+            "print(sorted(t.name for t in server.mcp._tool_manager.list_tools()))")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True,
+                         env={**os.environ, "QDRANT_MCP_MODULES": "text"}).stdout
+    assert out.strip() == "['find_text', 'store_text']"
