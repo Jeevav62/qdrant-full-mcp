@@ -5,6 +5,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from . import keystore
 from .common import (QdrantError, acct, cidrs, cloud_call, page, require_writable, segment, tool, uuid)
 
 NAME_RE = re.compile(r"^[a-zA-Z0-9_-]{2,64}$")
@@ -224,8 +225,10 @@ def delete_cluster(cluster_id: str, confirm_cluster_name: str, delete_backups: b
     if not real or confirm_cluster_name != real:
         raise QdrantError(f"Confirmation failed: confirm_cluster_name {confirm_cluster_name!r} does not match the "
                           f"cluster's actual name {real!r}. Nothing deleted.")
-    return cloud_call("DELETE", f"{CLUSTERS()}/{cluster_id}",
-                      params={"delete_backups": "true" if delete_backups else None})
+    r = cloud_call("DELETE", f"{CLUSTERS()}/{cluster_id}",
+                   params={"delete_backups": "true" if delete_backups else None})
+    keystore.forget(cluster_id)  # its keys die with it
+    return r
 
 
 def _lifecycle(action: str, cluster_id: str, confirm: bool, effect: str) -> Any:
@@ -364,13 +367,19 @@ def delete_backup_schedule(backup_schedule_id: str, confirm: bool = False) -> An
 @tool
 def create_database_api_key(cluster_id: str, name: str, access: str = "read_only",
                             collection_access: Optional[list[dict]] = None, expires_in_days: Optional[int] = None,
-                            confirm: bool = False) -> Any:
-    """Create a database API key for a cluster (used as QDRANT_API_KEY for the data tools). The secret is returned
-    ONCE in the response: tell the user to store it securely; never repeat it unnecessarily.
-    Scope: either access='read_only'|'manage' (global; default read_only = least privilege) OR
-    collection_access=[{"collection_name": "docs", "access": "read_only"|"read_write"}] (per collection, max 20).
+                            remember: str = "session", confirm: bool = False) -> Any:
+    """Create a database API key for a cluster, so the data and text tools can read and write it. The secret is
+    returned ONCE in the response: never repeat it unnecessarily.
+    Scope: either access='read_only'|'manage' (global; default read_only = least privilege; use 'manage' when the user
+    wants to create collections or write data) OR collection_access=[{"collection_name": "docs",
+    "access": "read_only"|"read_write"}] (per collection, max 20).
+    remember: 'session' (default) = this server uses the key for this cluster right away, no restart or config edit;
+    'save' = also store it in a local key file so future sessions in any MCP client work too. ASK THE USER before
+    using 'save' ("Save this key on this machine so it works next time?"); 'none' = only return it.
     name: 4-128 chars letters/digits/space/_/-. expires_in_days optional. confirm=false = dry run."""
     uuid(cluster_id, "cluster_id")
+    if remember not in ("none", "session", "save"):
+        raise QdrantError("remember must be 'none', 'session' or 'save'.")
     if not KEY_NAME_RE.match(name or ""):
         raise QdrantError("name must be 4-128 chars of letters, digits, spaces, '_' or '-'.")
     if collection_access:
@@ -394,10 +403,21 @@ def create_database_api_key(cluster_id: str, name: str, access: str = "read_only
             raise QdrantError("expires_in_days must be 1..3650.")
         key["expiresAt"] = (datetime.now(timezone.utc) + timedelta(days=expires_in_days)).strftime("%Y-%m-%dT%H:%M:%SZ")
     if not confirm:
-        return _dry("Nothing created. Get user approval, then call again with confirm=true.", would_create=key)
+        return _dry("Nothing created. Get user approval, then call again with confirm=true.", would_create=key,
+                    remember=remember)
     require_writable()
-    return cloud_call("POST", f"/api/cluster/auth/v2/accounts/{acct()}/database-api-keys",
-                      body={"databaseApiKey": key})
+    r = cloud_call("POST", f"/api/cluster/auth/v2/accounts/{acct()}/database-api-keys",
+                   body={"databaseApiKey": key})
+    created = r.get("databaseApiKey", r) if isinstance(r, dict) else {}
+    secret = created.get("key")
+    if remember != "none" and secret:
+        try:
+            path = keystore.remember(cluster_id, secret, created.get("id"), name, save=remember == "save")
+            r["remembered"] = {"mode": remember, "key_file": path,
+                               "note": "Data tools on this cluster now use this key automatically."}
+        except QdrantError as e:  # key exists in Qdrant either way; report instead of failing
+            r["remembered"] = {"mode": "session" if keystore.get(cluster_id) == secret else "none", "error": str(e)}
+    return r
 
 
 @tool
@@ -409,5 +429,23 @@ def delete_database_api_key(cluster_id: str, database_api_key_id: str, confirm: 
         return _dry("Nothing deleted. Get user approval, then call again with confirm=true.",
                     cluster_id=cluster_id, database_api_key_id=database_api_key_id)
     require_writable()
-    return cloud_call("DELETE", f"/api/cluster/auth/v2/accounts/{acct()}/database-api-keys/{database_api_key_id}",
-                      params={"cluster_id": cluster_id})
+    r = cloud_call("DELETE", f"/api/cluster/auth/v2/accounts/{acct()}/database-api-keys/{database_api_key_id}",
+                   params={"cluster_id": cluster_id})
+    forgotten = keystore.forget(cluster_id, key_id=database_api_key_id)
+    if any(forgotten.values()):
+        r = {**(r if isinstance(r, dict) else {}), "forgotten_locally": forgotten}
+    return r
+
+
+@tool
+def list_remembered_keys() -> Any:
+    """Database keys this server remembers (from create_database_api_key), per cluster: key id, name, and whether it
+    is kept for this session or saved in the local key file. Secrets are never shown."""
+    return {"key_file": str(keystore.key_file() or "disabled"), "keys": keystore.summary()}
+
+
+@tool
+def forget_database_api_key(cluster_id: str) -> Any:
+    """Stop using the remembered database key for a cluster (removes it from this session and the local key file).
+    It does NOT revoke the key in Qdrant; use delete_database_api_key for that."""
+    return {"cluster_id": uuid(cluster_id, "cluster_id"), "forgotten": keystore.forget(cluster_id)}
