@@ -596,3 +596,13 @@ def test_local_mode_unsupported_route(local_mode):
     from qdrant_full_mcp import local
     with pytest.raises(common.QdrantError, match="Not available in local mode"):
         local.request("POST", "/collections/c/points/recommend", {})
+
+
+def test_missing_index_error_explains_the_fix(monkeypatch):
+    def strict(method, url, **kw):
+        return httpx.Response(400, json={"status": {"error": 'Bad request: Index required but not found for '
+                              '"metadata.topic" of one of the following types: [keyword]. Help: Create an index'}},
+                              request=httpx.Request(method, url))
+    monkeypatch.setattr(common.httpx, "request", strict)
+    with pytest.raises(ValueError, match=r"create_payload_index with field_name='metadata.topic', field_schema='keyword'"):
+        data.count_points("c", filter={"must": [{"key": "metadata.topic", "match": {"value": "x"}}]})
