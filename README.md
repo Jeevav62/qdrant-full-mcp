@@ -11,7 +11,8 @@ Everything the official `mcp-server-qdrant` does (store and find text) is includ
 - **Plain-text memory:** `store_text` and `find_text` embed text locally (FastEmbed), so you can store and search
   without making vectors yourself. Works with collections made by the official `mcp-server-qdrant`.
 - **Safe by default:** every change is a dry run until confirmed; destructive actions need the exact resource name.
-- **One variable to start:** just your Cloud Management Key. The account ID is detected automatically.
+- **One variable to start:** just your Cloud Management Key. The account ID is detected automatically, and the agent
+  creates and remembers the database key itself, so you can go from no cluster to searching your data in one chat.
 
 ## Quick start
 
@@ -101,12 +102,23 @@ claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-management-key -- uv run --pr
 
 ## Using the data tools
 
-The management key manages infrastructure only; it cannot read or write vectors. For data you need a *database API key*
-for the cluster, which you can create by asking: *"Create a read-write database API key for cluster X."* Then:
+The management key manages infrastructure only; Qdrant does not let it read or write vectors. Data needs a *database
+API key*, and the agent can make one for you, with no config editing and no restart:
+
+> *"Create a free cluster in AWS Mumbai, then make me a database key and store these notes in it."*
+
+When `create_database_api_key` creates a key, the server remembers it for that cluster and the data tools use it at
+once. The agent asks whether to **save it on this machine**; if you say yes, every later session (Claude Code, Codex,
+Cursor, ...) uses it automatically. Saved keys live in `%APPDATA%\qdrant-full-mcp\keys.json` on Windows or
+`~/.config/qdrant-full-mcp/keys.json` elsewhere (file mode 600, never printed by any tool). Deleting the key or the
+cluster removes it from there too; `forget_database_api_key` removes it on request, `list_remembered_keys` shows what
+is stored without secrets. Set `QDRANT_MCP_KEY_FILE=off` to never write keys to disk.
+
+You can still set keys yourself; they take priority over remembered ones:
 
 ```bash
-export QDRANT_API_KEY=the-database-key                 # one cluster
-export QDRANT_API_KEY_<CLUSTER_ID>=the-database-key    # several (UUID uppercased, '-' -> '_')
+export QDRANT_API_KEY_<CLUSTER_ID>=the-database-key    # per cluster (UUID uppercased, '-' -> '_')
+export QDRANT_API_KEY=the-database-key                 # fallback for any cluster
 ```
 
 Pass `cluster_id` to any data tool and the endpoint is looked up for you. For a local or self-hosted Qdrant, set
@@ -167,6 +179,7 @@ docker run -p 127.0.0.1:8000:8000 -e QDRANT_URL=https://your-cluster:6333 -e QDR
 - "Back up cluster X every day at 3am and keep backups for 14 days."
 - "Restore backup Y into a new cluster called `restored-1`."
 - "Create a read-only database API key for cluster X that expires in 90 days."
+- "Make a database key for cluster X and save it on this machine." (data tools then work in every session)
 - "Create a collection `docs` with a dense vector (768, Cosine) and a sparse vector for hybrid search."
 - "Add a keyword index on `tenant_id` in `docs`." / "How many points are in `docs`?"
 - "Store these three FAQ answers in collection `faq`." / "Search `faq` for how refunds work."
@@ -179,7 +192,8 @@ docker run -p 127.0.0.1:8000:8000 -e QDRANT_URL=https://your-cluster:6333 -e QDR
 
 **Cloud, changes things:** `create_cluster`, `update_cluster`, `delete_cluster`, `restart_cluster`, `suspend_cluster`,
 `unsuspend_cluster`, `create_backup`, `delete_backup`, `restore_backup_to_new_cluster`, `restore_backup` (in place,
-overwrites), `create_backup_schedule`, `delete_backup_schedule`, `create_database_api_key`, `delete_database_api_key`
+overwrites), `create_backup_schedule`, `delete_backup_schedule`, `create_database_api_key` (remembered so data tools work at once),
+`delete_database_api_key`, `list_remembered_keys`, `forget_database_api_key`
 
 **Data, read-only:** `list_collections`, `get_collection`, `list_payload_indexes`, `count_points`, `get_points`,
 `scroll_points`, `query_points` (dense or sparse), `hybrid_query_points` (dense + sparse, RRF or DBSF fusion)
@@ -223,7 +237,8 @@ The text tools use the same collection layout, so the two servers can share a co
 | `QDRANT_CLOUD_API_KEY` | cloud tools | the only required variable |
 | `QDRANT_CLOUD_ACCOUNT_ID` | optional | auto-detected when the key has one account; set it if you have several |
 | `QDRANT_API_KEY` | data tools | database API key (optional for unauthenticated local Qdrant) |
-| `QDRANT_API_KEY_<CLUSTER_ID>` | data tools | per-cluster key, wins over `QDRANT_API_KEY` |
+| `QDRANT_API_KEY_<CLUSTER_ID>` | data tools | per-cluster key; wins over remembered keys and `QDRANT_API_KEY` |
+| `QDRANT_MCP_KEY_FILE` | optional | where saved database keys go; `off` disables saving and reading |
 | `QDRANT_URL` | data tools | only without `cluster_id`, e.g. `http://localhost:6333` |
 | `QDRANT_LOCAL_PATH` | data tools | run without a server: a folder, or `:memory:`; instead of `QDRANT_URL` |
 | `QDRANT_MCP_MODULES` | optional | `cloud,data,text` (default) |
@@ -248,7 +263,9 @@ cache. Local mode (`QDRANT_LOCAL_PATH`) was verified for every data tool, includ
 through the MCP protocol; the Docker image was verified over HTTP from a second container. The text tools and data tools were also verified on a
 Qdrant Cloud cluster: 26 checks covering store/find, metadata filters, default collection, read-only mode, named and
 sparse collections, payload indexes, dense, sparse and hybrid search, deletes, and a stdio server process calling
-`find_text` on Cloud.
+`find_text` on Cloud. The remembered-key flow was verified on Cloud through the MCP protocol: create a key with
+`remember="save"`, store and search in the same session, then search again from a fresh server process with no key in
+its config, then delete the key and confirm the saved copy is gone.
 
 Not verified live yet: backups, backup schedules and restores (free-tier clusters do not support them), and cluster
 delete. Test those on a throwaway paid cluster first.
