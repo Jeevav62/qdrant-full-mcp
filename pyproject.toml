@@ -9,9 +9,19 @@ keywords = ["mcp", "qdrant", "qdrant-cloud", "vector-database", "claude"]
 classifiers = [
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 dependencies = ["mcp>=1.8,<2", "httpx>=0.27", "fastembed>=0.3", "qdrant-client>=1.12"]
+
+[project.urls]
+Homepage = "https://github.com/Jeevav62/qdrant-full-mcp"
+Repository = "https://github.com/Jeevav62/qdrant-full-mcp"
+Issues = "https://github.com/Jeevav62/qdrant-full-mcp/issues"
 
 [project.optional-dependencies]
 embed = []  # kept so "qdrant-full-mcp[embed]" installs still work; FastEmbed is now a core dependency
