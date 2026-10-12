@@ -1,35 +1,71 @@
-# qdrant-full-mcp
+<p align="center">
+  <img src="https://raw.githubusercontent.com/Jeevav62/qdrant-full-mcp/main/docs/assets/banner.webp" alt="qdrant-full-mcp: run Qdrant from Claude Code, Codex and any MCP client" width="100%">
+</p>
 
-**One MCP server for all of Qdrant.** Manage your Qdrant Cloud account (clusters, backups, API keys) *and* work with
-your data (collections, points, vector and hybrid search) from Claude Code, Codex, Cursor, VS Code or any MCP client.
-Everything the official `mcp-server-qdrant` does (store and find text) is included; see the [comparison](#compared-with-the-official-mcp-server-qdrant).
+<p align="center">
+  <a href="https://pypi.org/project/qdrant-full-mcp/"><img src="https://img.shields.io/pypi/v/qdrant-full-mcp?color=dc244c&label=PyPI" alt="PyPI version"></a>
+  <a href="https://pypi.org/project/qdrant-full-mcp/"><img src="https://img.shields.io/pypi/pyversions/qdrant-full-mcp" alt="Python versions"></a>
+  <a href="https://github.com/Jeevav62/qdrant-full-mcp/actions/workflows/ci.yml"><img src="https://github.com/Jeevav62/qdrant-full-mcp/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/Jeevav62/qdrant-full-mcp/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-7c3aed" alt="MIT license"></a>
+  <a href="https://modelcontextprotocol.io"><img src="https://img.shields.io/badge/MCP-server-0b1020" alt="MCP server"></a>
+</p>
 
-> Unofficial community project, not affiliated with or endorsed by Qdrant.
+<p align="center">
+  <b>The complete Qdrant MCP server.</b> Manage Qdrant Cloud and your vector data from Claude Code, Codex, Cursor,
+  VS Code or any MCP client, in plain English.
+</p>
 
-- **Cloud management:** create, scale, suspend, restart, back up, restore and delete clusters through the official Qdrant Cloud API.
-- **Data plane:** create collections, upsert and search points, hybrid dense + sparse search, payload indexes.
-- **Plain-text memory:** `store_text` and `find_text` embed text locally (FastEmbed), so you can store and search
-  without making vectors yourself. Works with collections made by the official `mcp-server-qdrant`.
-- **Safe by default:** every change is a dry run until confirmed; destructive actions need the exact resource name.
-- **One variable to start:** just your Cloud Management Key. The account ID is detected automatically, and the agent
-  creates and remembers the database key itself, so you can go from no cluster to searching your data in one chat.
+<p align="center">
+  <a href="#quick-start">Quick start</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#compared-with-the-official-qdrant-mcp-server">Comparison</a> ·
+  <a href="#faq">FAQ</a>
+</p>
+
+---
+
+**qdrant-full-mcp** is an open-source [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for the
+[Qdrant](https://qdrant.tech) vector database. It gives AI coding agents 43 tools to run Qdrant end to end:
+**Qdrant Cloud management** (clusters, backups, API keys), **data operations** (collections, upserts, dense, sparse
+and hybrid search, payload indexes) and **plain-text memory** with local embeddings. It does everything the official
+`mcp-server-qdrant` does, and adds infrastructure management and safety rails on top.
+
+> **Zero to a working RAG store in one chat**
+> *"Create a free Qdrant cluster in Mumbai, store these notes, then find what we said about refunds."*
+> The agent creates the cluster, creates a database key, asks once whether to remember it, stores your text and
+> searches it. No console, no config edits, no restart.
+
+## Features
+
+| | |
+|---|---|
+| ☁️ **Qdrant Cloud management** | Create, scale, suspend, restart and delete clusters; list regions, packages and prices |
+| 🔑 **Keys that just work** | The agent creates database keys and remembers them, so data tools work immediately |
+| 💾 **Backups and restores** | On-demand backups, cron schedules with retention, restore in place or to a new cluster |
+| 🗂️ **Collections and indexes** | Single, named and sparse vectors; keyword, integer, text, geo and other payload indexes |
+| 🔎 **Search** | Dense, sparse and **hybrid** search (RRF or DBSF fusion), filters, scroll, counts |
+| 🧠 **Plain-text memory** | `store_text` / `find_text` with local FastEmbed embeddings, compatible with the official server |
+| 💻 **No server needed to start** | `QDRANT_LOCAL_PATH` runs Qdrant inside the MCP server; switch to Cloud by changing one setting |
+| 🛡️ **Safe by default** | Every change is a dry run until confirmed; deletes need the exact name; read-only mode |
+| 🌐 **Runs anywhere** | stdio, SSE and streamable HTTP transports, Docker image, Claude Code plugin |
 
 ## Quick start
 
-**1. Get a key.** Qdrant Cloud Console -> *Access Management* -> *Cloud Management Keys* -> create one.
-(Least privilege is fine: read-only permissions are enough for the read tools.)
+**1. Get a key.** In the [Qdrant Cloud console](https://cloud.qdrant.io): *Access Management* → *Cloud Management
+Keys* → create one. That is the only setting you need; the account is detected automatically.
 
-**2. Download once.** Requires [`uv`](https://docs.astral.sh/uv/getting-started/installation/). The first run fetches
-the dependencies (about 40 seconds, cached afterwards), which is longer than some clients wait for a server to start:
+**2. Download once.** Requires [uv](https://docs.astral.sh/uv/getting-started/installation/). The first run fetches
+dependencies (about 40 seconds, then cached), which is longer than some clients wait for a server to start:
 
 ```bash
 uvx qdrant-full-mcp --help
 ```
 
-On a slow connection, if a download times out, give uv more time: `UV_HTTP_TIMEOUT=180 uvx qdrant-full-mcp --help`
-(PowerShell: `$env:UV_HTTP_TIMEOUT=180; uvx qdrant-full-mcp --help`).
+<sub>On a slow connection: <code>UV_HTTP_TIMEOUT=180 uvx qdrant-full-mcp --help</code> (PowerShell:
+<code>$env:UV_HTTP_TIMEOUT=180; uvx qdrant-full-mcp --help</code>).</sub>
 
-**3. Add it to your client:**
+**3. Add it to your AI client.**
 
 ### Claude Code
 
@@ -37,27 +73,28 @@ On a slow connection, if a download times out, give uv more time: `UV_HTTP_TIMEO
 claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-management-key -- uvx qdrant-full-mcp
 ```
 
-Check with `claude mcp list`, or `/mcp` inside Claude Code. Then try: *"List my Qdrant Cloud clusters."*
+Check with `claude mcp list` or `/mcp`, then ask: *"List my Qdrant Cloud clusters."*
 
-Prefer not to store the key in Claude's config? Set `QDRANT_CLOUD_API_KEY` in your shell profile and use
-`-e 'QDRANT_CLOUD_API_KEY=${QDRANT_CLOUD_API_KEY}'` instead.
-
-**As a plugin** (adds a usage skill that teaches Claude the safe workflows):
+<details>
+<summary>Install as a Claude Code plugin (adds a skill with the safe workflows)</summary>
 
 ```
 /plugin marketplace add Jeevav62/qdrant-full-mcp
 /plugin install qdrant@qdrant-full-mcp
 ```
 
-With the plugin, set `QDRANT_CLOUD_API_KEY` in your environment before starting Claude Code.
+Set `QDRANT_CLOUD_API_KEY` in your environment before starting Claude Code. To keep the key out of Claude's config
+with the plain install, use `-e 'QDRANT_CLOUD_API_KEY=${QDRANT_CLOUD_API_KEY}'`.
+</details>
 
-### Codex
+### OpenAI Codex
 
 ```bash
 codex mcp add qdrant --env QDRANT_CLOUD_API_KEY=your-management-key -- uvx qdrant-full-mcp
 ```
 
-Or edit `~/.codex/config.toml` by hand:
+<details>
+<summary>Or edit <code>~/.codex/config.toml</code></summary>
 
 ```toml
 [mcp_servers.qdrant]
@@ -70,8 +107,10 @@ QDRANT_CLOUD_API_KEY = "your-management-key"
 ```
 
 Verify with `codex mcp list`.
+</details>
 
-### Cursor, Claude Desktop, Windsurf and other JSON-config clients
+<details>
+<summary>Cursor, Claude Desktop, Windsurf and other JSON-config clients</summary>
 
 ```json
 {
@@ -85,11 +124,11 @@ Verify with `codex mcp list`.
 }
 ```
 
-(Cursor: `~/.cursor/mcp.json`. Claude Desktop: `claude_desktop_config.json`.)
+Cursor: `~/.cursor/mcp.json`. Claude Desktop: `claude_desktop_config.json`.
+</details>
 
-### VS Code
-
-`.vscode/mcp.json`:
+<details>
+<summary>VS Code (<code>.vscode/mcp.json</code>)</summary>
 
 ```json
 {
@@ -103,200 +142,241 @@ Verify with `codex mcp list`.
   }
 }
 ```
+</details>
 
-### From a local clone
+<details>
+<summary>From a local clone</summary>
 
 ```bash
 git clone https://github.com/Jeevav62/qdrant-full-mcp
 claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-management-key -- uv run --project ./qdrant-full-mcp qdrant-full-mcp
 ```
+</details>
 
-## Using the data tools
+## How it works
 
-The management key manages infrastructure only; Qdrant does not let it read or write vectors. Data needs a *database
-API key*, and the agent can make one for you, with no config editing and no restart:
-
-> *"Create a free cluster in AWS Mumbai, then make me a database key and store these notes in it."*
-
-When `create_database_api_key` creates a key, the server remembers it for that cluster and the data tools use it at
-once. The agent asks whether to **save it on this machine**; if you say yes, every later session (Claude Code, Codex,
-Cursor, ...) uses it automatically. Saved keys live in `%APPDATA%\qdrant-full-mcp\keys.json` on Windows or
-`~/.config/qdrant-full-mcp/keys.json` elsewhere (file mode 600, never printed by any tool). Deleting the key or the
-cluster removes it from there too; `forget_database_api_key` removes it on request, `list_remembered_keys` shows what
-is stored without secrets. Set `QDRANT_MCP_KEY_FILE=off` to never write keys to disk.
-
-You can still set keys yourself; they take priority over remembered ones:
-
-```bash
-export QDRANT_API_KEY_<CLUSTER_ID>=the-database-key    # per cluster (UUID uppercased, '-' -> '_')
-export QDRANT_API_KEY=the-database-key                 # fallback for any cluster
+```mermaid
+flowchart LR
+    A["Claude Code · Codex · Cursor · VS Code"] -- "MCP (stdio / HTTP)" --> B["qdrant-full-mcp"]
+    B -- "Cloud management key" --> C["Qdrant Cloud API<br/>clusters · backups · keys"]
+    B -- "database key<br/>(created and remembered)" --> D["Qdrant cluster<br/>collections · search"]
+    B -- "QDRANT_LOCAL_PATH" --> E["Local Qdrant<br/>no server needed"]
+    B -. "FastEmbed" .-> F["Local embeddings<br/>store_text · find_text"]
 ```
 
-Pass `cluster_id` to any data tool and the endpoint is looked up for you. For a local or self-hosted Qdrant, set
-`QDRANT_URL` (e.g. `http://localhost:6333`) and `QDRANT_API_KEY` instead and skip `cluster_id`.
+- **Two credentials, handled for you.** The Cloud management key runs infrastructure; Qdrant does not let it read
+  data. When the agent creates a database key with `create_database_api_key`, the server remembers it for that
+  cluster, so data tools work at once. The agent asks whether to **save it on this machine**; if you agree, every
+  later session in any MCP client uses it (`%APPDATA%\qdrant-full-mcp\keys.json` on Windows,
+  `~/.config/qdrant-full-mcp/keys.json` elsewhere, file mode 600, never printed). Keys you set yourself
+  (`QDRANT_API_KEY_<CLUSTER_ID>`, `QDRANT_API_KEY`) always take priority.
+- **Endpoints are looked up for you.** Pass `cluster_id` to any data tool. For self-hosted Qdrant, set `QDRANT_URL`
+  and `QDRANT_API_KEY` instead.
 
-## Store and search plain text
+## Use cases
+
+- **Build a RAG backend from chat:** create a cluster, a collection with dense and sparse vectors, a payload index,
+  and run hybrid search to test retrieval quality.
+- **Give your agent long-term memory:** set `COLLECTION_NAME=memory` and say *"remember that…"* / *"what do we know
+  about…"*.
+- **Operate production safely:** scale clusters, schedule backups, rotate keys, and inspect collections with dry runs
+  and exact-name confirmations.
+- **Learn vector search locally:** `QDRANT_LOCAL_PATH=./qdrant-data`, no account and no server.
+
+## Plain-text memory (store and find)
 
 `store_text` and `find_text` embed text on your machine with [FastEmbed](https://github.com/qdrant/fastembed), the same
-approach as the official `mcp-server-qdrant`, so no vectors are needed. Nothing extra to install.
-
-For a simple agent memory, set a default collection:
+approach as the official server, so you never handle vectors. For an agent memory with one default collection:
 
 ```bash
-claude mcp add qdrant -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key -e COLLECTION_NAME=memory   -- uvx qdrant-full-mcp
+claude mcp add qdrant -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key -e COLLECTION_NAME=memory -- uvx qdrant-full-mcp
 ```
 
-Then just say *"Remember that refunds take 5 business days"* and later *"How long do refunds take?"*. With
-`COLLECTION_NAME` set, storing into that collection happens in one step and the collection is created on first use;
-any other collection keeps the dry-run-then-confirm flow. Without it, name the collection in your request.
+- Stores into `COLLECTION_NAME` happen in one step and create the collection on first use; other collections keep
+  the dry-run-then-confirm flow.
+- Default model `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions, about 90 MB on first use); change it with
+  `EMBEDDING_MODEL`.
+- Same layout as the official server (named vector `fast-<model>`, payload `{"document", "metadata"}`), so both
+  servers can share a collection.
+- `TOOL_STORE_DESCRIPTION` / `TOOL_FIND_DESCRIPTION` customize the tools (for example, a code-snippet library);
+  `QDRANT_SEARCH_LIMIT` sets the default result count.
+- On Qdrant Cloud, a field you filter on needs a payload index; if it is missing, the error tells the agent the exact
+  `create_payload_index` call that fixes it.
 
-- **No server at all:** set `QDRANT_LOCAL_PATH=./qdrant-data` instead of `QDRANT_URL` and Qdrant runs inside the MCP
-  server, storing data in that folder (`:memory:` keeps it in RAM). Every data and text tool works the same. Good for
-  learning and small projects; switch to a real cluster later by changing one variable.
-- `TOOL_STORE_DESCRIPTION` and `TOOL_FIND_DESCRIPTION` replace the tool descriptions, e.g. *"Store a reusable code
-  snippet with its description"*, to turn the memory into something specific. `QDRANT_SEARCH_LIMIT` sets the default
-  number of results (5).
-- The first text call downloads the model (about 90 MB, cached afterwards).
-- Filtering on Qdrant Cloud: Cloud clusters require a payload index on any field you filter by. Ask *"add a keyword
-  index on metadata.topic in memory"* once; if you forget, the error tells the model the exact call that fixes it.
-- Default model `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions); change it with `EMBEDDING_MODEL`.
-- Layout matches the official server: a named vector `fast-<model>` and payload `{"document", "metadata"}`, so both
-  servers can read and write the same collection.
-
-## Remote (HTTP) mode
-
-stdio is the default. To run it as a server that clients connect to over HTTP:
+## Run as an HTTP server or in Docker
 
 ```bash
-qdrant-full-mcp --transport streamable-http --port 8000   # endpoint http://127.0.0.1:8000/mcp
+qdrant-full-mcp --transport streamable-http --port 8000   # http://127.0.0.1:8000/mcp
 qdrant-full-mcp --transport sse                           # older SSE clients
 ```
 
-It binds to `127.0.0.1` by default. There is no built-in authentication and the server holds your Qdrant keys, so if
-you bind to another address (`--host 0.0.0.0`), put an authenticating proxy in front of it.
-
-With Docker (the image includes the default embedding model and serves streamable HTTP on port 8000):
-
 ```bash
 docker build -t qdrant-full-mcp .
-docker run -p 127.0.0.1:8000:8000 -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key   -e COLLECTION_NAME=memory qdrant-full-mcp
+docker run -p 127.0.0.1:8000:8000 -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key -e COLLECTION_NAME=memory qdrant-full-mcp
 ```
+
+The server binds to `127.0.0.1` by default and has no built-in authentication while holding your Qdrant keys. If you
+expose it (`--host 0.0.0.0`), put an authenticating proxy in front. The Docker image includes the default embedding
+model and runs as a non-root user.
 
 ## Example prompts
 
-- "List my Qdrant Cloud clusters." / "Show the available AWS regions."
-- "Create a Qdrant cluster in AWS London with the smallest paid package." (shows the price first, waits for your approval)
-- "Scale cluster X to 3 nodes." / "Suspend cluster X."
+- "List my Qdrant Cloud clusters." · "Show the available AWS regions and prices."
+- "Create a Qdrant cluster in AWS London with the smallest paid package." *(shows the price, waits for approval)*
+- "Scale cluster X to 3 nodes." · "Suspend cluster X."
 - "Back up cluster X every day at 3am and keep backups for 14 days."
 - "Restore backup Y into a new cluster called `restored-1`."
-- "Create a read-only database API key for cluster X that expires in 90 days."
-- "Make a database key for cluster X and save it on this machine." (data tools then work in every session)
-- "Create a collection `docs` with a dense vector (768, Cosine) and a sparse vector for hybrid search."
-- "Add a keyword index on `tenant_id` in `docs`." / "How many points are in `docs`?"
-- "Store these three FAQ answers in collection `faq`." / "Search `faq` for how refunds work."
-- "Delete cluster `old-test`." (you must confirm the exact name)
+- "Make a database key for cluster X and save it on this machine."
+- "Create a collection `docs` with a 768-dim dense vector and a sparse vector for hybrid search."
+- "Add a keyword index on `tenant_id` in `docs`." · "How many points are in `docs`?"
+- "Store these three FAQ answers in `faq`." · "Search `faq` for how refunds work."
+- "Delete cluster `old-test`." *(you confirm the exact name)*
+
+## Compared with the official Qdrant MCP server
+
+| Capability | official `mcp-server-qdrant` | `qdrant-full-mcp` |
+|---|:---:|:---:|
+| Store and find text with built-in embeddings | ✅ | ✅ |
+| Default collection (`COLLECTION_NAME`), one-step store | ✅ | ✅ |
+| Local mode without a server (`QDRANT_LOCAL_PATH`) | ✅ store/find | ✅ all data and text tools |
+| Custom tool descriptions, default search limit | ✅ | ✅ same variable names |
+| stdio, SSE, streamable HTTP, Docker | ✅ | ✅ |
+| Qdrant Cloud cluster management | | ✅ |
+| Backups, schedules and restores | | ✅ |
+| Database API keys created and remembered by the agent | | ✅ |
+| Named and sparse vectors, payload indexes | | ✅ |
+| Dense, sparse and hybrid (RRF, DBSF) search with your own vectors | | ✅ |
+| Dry run and exact-name confirmation on changes | read-only flag | ✅ |
+
+Both servers use the same collection layout for text, so you can switch or run them side by side.
 
 ## Tools
 
+<details>
+<summary><b>All 43 tools</b></summary>
+
 **Cloud, read-only:** `list_accounts`, `list_clusters`, `get_cluster`, `list_cloud_providers`, `list_regions`,
-`list_packages`, `list_releases`, `list_backups`, `list_backup_schedules`, `list_database_api_keys`, `list_members`
+`list_packages`, `list_releases`, `list_backups`, `list_backup_schedules`, `list_database_api_keys`, `list_members`,
+`list_remembered_keys`
 
 **Cloud, changes things:** `create_cluster`, `update_cluster`, `delete_cluster`, `restart_cluster`, `suspend_cluster`,
 `unsuspend_cluster`, `create_backup`, `delete_backup`, `restore_backup_to_new_cluster`, `restore_backup` (in place,
-overwrites), `create_backup_schedule`, `delete_backup_schedule`, `create_database_api_key` (remembered so data tools work at once),
-`delete_database_api_key`, `list_remembered_keys`, `forget_database_api_key`
+overwrites), `create_backup_schedule`, `delete_backup_schedule`, `create_database_api_key`, `delete_database_api_key`,
+`forget_database_api_key`
 
 **Data, read-only:** `list_collections`, `get_collection`, `list_payload_indexes`, `count_points`, `get_points`,
-`scroll_points`, `query_points` (dense or sparse), `hybrid_query_points` (dense + sparse, RRF or DBSF fusion)
+`scroll_points`, `query_points` (dense or sparse), `hybrid_query_points` (dense + sparse, RRF or DBSF)
 
 **Data, changes things:** `create_collection` (single, named and sparse vectors), `delete_collection`,
 `create_payload_index`, `delete_payload_index`, `upsert_points`, `delete_points`
 
-**Text:** `store_text` (embeds and upserts, creates the collection if missing), `find_text` (embeds the query and
-searches)
+**Text:** `store_text`, `find_text`
+</details>
 
-## Compared with the official mcp-server-qdrant
+## Safety and security
 
-| | official `mcp-server-qdrant` | `qdrant-full-mcp` |
-|---|---|---|
-| Store and find text with built-in embeddings | yes | yes (`store_text`, `find_text`) |
-| Default collection via `COLLECTION_NAME`, one-step store | yes | yes |
-| Local mode without a server (`QDRANT_LOCAL_PATH`) | yes (store/find) | yes (all data and text tools) |
-| Custom tool descriptions, default search limit | yes | yes (same variable names) |
-| Docker image | yes | yes |
-| Cluster management (create, scale, suspend, delete) | no | yes |
-| Backups, schedules, restores, database API keys | no | yes |
-| Collections with named and sparse vectors, payload indexes | no | yes |
-| Dense, sparse and hybrid (RRF, DBSF) search with your own vectors | no | yes |
-| Dry run and confirmation on writes, read-only mode | read-only flag | yes |
-| Transports | stdio, SSE, streamable HTTP | stdio, SSE, streamable HTTP |
-
-The text tools use the same collection layout, so the two servers can share a collection.
-
-## Safety
-
-- Every mutating tool is a **dry run unless `confirm=true`**, and the tool descriptions tell the model to get your approval first.
-- Irreversible tools need the exact name: `delete_cluster` and `restore_backup` (`confirm_cluster_name`), `delete_collection` (`confirm_collection_name`).
-- `QDRANT_MCP_READ_ONLY=1` (or `QDRANT_READ_ONLY=1`) blocks every confirmed write. `QDRANT_MCP_MODULES` (e.g. `cloud`, `data,text`) loads only the modules you list.
-- Keys come from environment variables only and are never logged or echoed. A new database key's secret is shown once by Qdrant.
+- Every mutating tool is a **dry run unless `confirm=true`**, and tool descriptions tell the agent to get your approval.
+- Irreversible actions need the exact name: `delete_cluster` and `restore_backup` (`confirm_cluster_name`),
+  `delete_collection` (`confirm_collection_name`).
+- `QDRANT_MCP_READ_ONLY=1` (or `QDRANT_READ_ONLY=1`) blocks every write; `QDRANT_MCP_MODULES` loads only the modules
+  you list (`cloud`, `data`, `text`).
+- Keys come from your environment or the opt-in key file, are never logged or echoed, and saved keys are removed when
+  the key or cluster is deleted. `QDRANT_MCP_KEY_FILE=off` never writes keys to disk.
 - Ids and paths are validated before any request. Prefer least-privilege keys.
 
 ## Configuration
 
-| Variable | Needed for | Notes |
+<details>
+<summary><b>All environment variables</b></summary>
+
+| Variable | Used by | Notes |
 |---|---|---|
 | `QDRANT_CLOUD_API_KEY` | cloud tools | the only required variable |
-| `QDRANT_CLOUD_ACCOUNT_ID` | optional | auto-detected when the key has one account; set it if you have several |
-| `QDRANT_API_KEY` | data tools | database API key (optional for unauthenticated local Qdrant) |
+| `QDRANT_CLOUD_ACCOUNT_ID` | cloud tools | auto-detected when the key has one account |
+| `QDRANT_API_KEY` | data tools | database key fallback (optional for unauthenticated local Qdrant) |
 | `QDRANT_API_KEY_<CLUSTER_ID>` | data tools | per-cluster key; wins over remembered keys and `QDRANT_API_KEY` |
-| `QDRANT_MCP_KEY_FILE` | optional | where saved database keys go; `off` disables saving and reading |
-| `QDRANT_URL` | data tools | only without `cluster_id`, e.g. `http://localhost:6333` |
-| `QDRANT_LOCAL_PATH` | data tools | run without a server: a folder, or `:memory:`; instead of `QDRANT_URL` |
-| `QDRANT_MCP_MODULES` | optional | `cloud,data,text` (default) |
+| `QDRANT_MCP_KEY_FILE` | data tools | where saved database keys go; `off` disables the key file |
+| `QDRANT_URL` | data tools | self-hosted or direct endpoint, e.g. `http://localhost:6333` |
+| `QDRANT_LOCAL_PATH` | data tools | run without a server: a folder or `:memory:` (instead of `QDRANT_URL`) |
 | `COLLECTION_NAME` | text tools | default collection; stores into it skip the dry run |
 | `EMBEDDING_MODEL` | text tools | FastEmbed model, default `sentence-transformers/all-MiniLM-L6-v2` |
-| `QDRANT_MCP_READ_ONLY` | optional | `1` blocks writes (`QDRANT_READ_ONLY` also works) |
-| `QDRANT_SEARCH_LIMIT` | text tools | default number of `find_text` results, 1..100 (default 5) |
+| `QDRANT_SEARCH_LIMIT` | text tools | default `find_text` result count, 1..100 (default 5) |
 | `TOOL_STORE_DESCRIPTION`, `TOOL_FIND_DESCRIPTION` | text tools | replace the tool descriptions |
-| `QDRANT_MCP_TRANSPORT` | optional | `stdio` (default), `sse` or `streamable-http`; same as `--transport` |
-| `FASTMCP_SERVER_HOST`, `FASTMCP_SERVER_PORT` | optional | HTTP bind address and port (`FASTMCP_HOST`/`FASTMCP_PORT` also work) |
-| `QDRANT_CLOUD_API_URL` | optional | default `https://api.cloud.qdrant.io` |
+| `QDRANT_MCP_MODULES` | server | `cloud,data,text` (default) |
+| `QDRANT_MCP_READ_ONLY` | server | `1` blocks writes (`QDRANT_READ_ONLY` also works) |
+| `QDRANT_MCP_TRANSPORT` | server | `stdio` (default), `sse` or `streamable-http`; same as `--transport` |
+| `FASTMCP_SERVER_HOST`, `FASTMCP_SERVER_PORT` | server | HTTP bind address and port (`FASTMCP_HOST`/`FASTMCP_PORT` also work) |
+| `QDRANT_CLOUD_API_URL` | cloud tools | default `https://api.cloud.qdrant.io` |
 
-See `.env.example`. Never commit real values.
+See [`.env.example`](https://github.com/Jeevav62/qdrant-full-mcp/blob/main/.env.example). Never commit real values.
+</details>
 
-## Status and roadmap
+## FAQ
 
-Verified against the live Qdrant Cloud API on a free-tier cluster: cluster create and update, restart, suspend and
-unsuspend, database API keys, and the data tools (collections, named and sparse vectors, upsert, dense, sparse and
-hybrid search, payload indexes, deletes). The text tools were verified end to end through the MCP protocol (stdio and
-streamable HTTP) against a local Qdrant 1.19 with the real FastEmbed model, including a first run with an empty model
-cache. Local mode (`QDRANT_LOCAL_PATH`) was verified for every data tool, including dense, sparse and hybrid search, and
-through the MCP protocol; the Docker image was verified over HTTP from a second container. The text tools and data tools were also verified on a
-Qdrant Cloud cluster: 26 checks covering store/find, metadata filters, default collection, read-only mode, named and
-sparse collections, payload indexes, dense, sparse and hybrid search, deletes, and a stdio server process calling
-`find_text` on Cloud. The remembered-key flow was verified on Cloud through the MCP protocol: create a key with
-`remember="save"`, store and search in the same session, then search again from a fresh server process with no key in
-its config, then delete the key and confirm the saved copy is gone.
+**What is qdrant-full-mcp?**
+An open-source MCP server that lets AI agents such as Claude Code and OpenAI Codex manage Qdrant Cloud (clusters,
+backups, API keys) and work with Qdrant data (collections, vector and hybrid search, text memory) through natural
+language.
 
-Not verified live yet: backups, backup schedules and restores (free-tier clusters do not support them), and cluster
-delete. Test those on a throwaway paid cluster first.
+**How do I connect Claude Code to Qdrant?**
+Run `claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-key -- uvx qdrant-full-mcp`, then ask Claude to list your
+clusters. For Codex, use `codex mcp add qdrant --env QDRANT_CLOUD_API_KEY=your-key -- uvx qdrant-full-mcp`.
 
-Ideas for later: snapshots, named-vector search options (quantization, HNSW tuning), payload updates without
-re-upserting, collection aliases, cluster configuration settings.
+**How is it different from the official mcp-server-qdrant?**
+The official server is a semantic memory with two tools (store and find). qdrant-full-mcp includes the same store and
+find behaviour and collection layout, and adds Qdrant Cloud management, backups, database keys, named and sparse
+vectors, payload indexes, hybrid search and confirmation-based safety. See the [comparison](#compared-with-the-official-qdrant-mcp-server).
 
-**Not covered by design:** inviting or removing members, roles and billing; hybrid-cloud environments and serverless
-spaces; embedding models other than FastEmbed's (for the other tools, bring your own vectors).
+**Can it create a free Qdrant Cloud cluster?**
+Yes. Ask *"create a free cluster in &lt;region&gt;"*. Qdrant allows one free cluster per account; a second request
+returns a clear quota error.
 
-## Development
+**Do I need to generate embeddings myself?**
+No for text: `store_text` and `find_text` embed locally with FastEmbed. Yes for the vector tools (`upsert_points`,
+`query_points`, `hybrid_query_points`), which take your own dense or sparse vectors.
+
+**Does it support hybrid search?**
+Yes. `hybrid_query_points` combines a dense and a sparse query with reciprocal rank fusion (RRF) or
+distribution-based score fusion (DBSF).
+
+**Can I use it without Qdrant Cloud?**
+Yes. Point `QDRANT_URL` at a self-hosted Qdrant, or set `QDRANT_LOCAL_PATH` to run Qdrant inside the server with no
+installation.
+
+**Is it safe to let an AI agent manage my database?**
+Changes are dry runs until confirmed, deletes and in-place restores require the exact resource name, and
+`QDRANT_MCP_READ_ONLY=1` blocks all writes. Your MCP client also asks before running tools.
+
+**Is this an official Qdrant product?**
+No. It is an independent, MIT-licensed community project and is not affiliated with or endorsed by Qdrant.
+
+## Status
+
+Verified live on Qdrant Cloud: cluster create, update, restart, suspend and unsuspend; database API keys including the
+remembered-key flow across server restarts; collections, named and sparse vectors, payload indexes, upserts, dense,
+sparse and hybrid search, deletes; `store_text` / `find_text` and filters. Also verified through the MCP protocol over
+stdio and streamable HTTP, in local mode, and in Docker.
+
+Not yet verified live: backups, backup schedules, restores and cluster delete (free-tier clusters do not support
+backups). Reports from paid-cluster users are welcome.
+
+**Roadmap:** snapshots, collection aliases, quantization and HNSW options, payload updates without re-upserting, a
+`copy_collection` tool. **Out of scope:** members, roles and billing; hybrid-cloud environments.
+
+## Contributing
+
+Issues and pull requests are welcome.
 
 ```bash
+git clone https://github.com/Jeevav62/qdrant-full-mcp && cd qdrant-full-mcp
 pip install -e ".[dev]"
 pytest
 ```
 
-Cloud API schemas: https://github.com/qdrant/qdrant-cloud-public-api. The Cloud REST gateway expects snake_case query
-parameters (e.g. `page_size`) and accepts camelCase JSON bodies.
+The Cloud REST gateway expects snake_case query parameters (for example `page_size`) and accepts camelCase JSON
+bodies; schemas live in [qdrant-cloud-public-api](https://github.com/qdrant/qdrant-cloud-public-api).
 
 ## License
 
-MIT. Unofficial community project, not affiliated with or endorsed by Qdrant. "Qdrant" is a trademark of its owner.
+[MIT](https://github.com/Jeevav62/qdrant-full-mcp/blob/main/LICENSE). Unofficial community project, not affiliated
+with or endorsed by Qdrant. "Qdrant" is a trademark of its owner.
