@@ -2,6 +2,9 @@
 
 **One MCP server for all of Qdrant.** Manage your Qdrant Cloud account (clusters, backups, API keys) *and* work with
 your data (collections, points, vector and hybrid search) from Claude Code, Codex, Cursor, VS Code or any MCP client.
+Everything the official `mcp-server-qdrant` does (store and find text) is included; see the [comparison](#compared-with-the-official-mcp-server-qdrant).
+
+> Unofficial community project, not affiliated with or endorsed by Qdrant.
 
 - **Cloud management:** create, scale, suspend, restart, back up, restore and delete clusters through the official Qdrant Cloud API.
 - **Data plane:** create collections, upsert and search points, hybrid dense + sparse search, payload indexes.
@@ -112,20 +115,34 @@ Pass `cluster_id` to any data tool and the endpoint is looked up for you. For a 
 ## Store and search plain text
 
 `store_text` and `find_text` embed text on your machine with [FastEmbed](https://github.com/qdrant/fastembed), the same
-approach as the official `mcp-server-qdrant`, so no vectors are needed. They need the optional `embed` extra:
+approach as the official `mcp-server-qdrant`, so no vectors are needed. Nothing extra to install.
+
+For a simple agent memory, set a default collection:
 
 ```bash
-claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-key -- uvx --from "qdrant-full-mcp[embed] @ git+https://github.com/Jeevav62/qdrant-full-mcp" qdrant-full-mcp
+claude mcp add qdrant -e QDRANT_URL=https://your-cluster:6333 -e QDRANT_API_KEY=db-key -e COLLECTION_NAME=memory   -- uvx --from git+https://github.com/Jeevav62/qdrant-full-mcp qdrant-full-mcp
 ```
 
-(After the PyPI release this is `uvx --from "qdrant-full-mcp[embed]" qdrant-full-mcp`.) The first call downloads the
-model (about 90 MB, cached afterwards). Set `QDRANT_URL` and `QDRANT_API_KEY`, or pass `cluster_id`, as in the data tools.
-Then ask: *"Remember in collection `notes` that refunds take 5 business days"* and *"Search `notes` for how long
-refunds take."* The collection is created on first store.
+Then just say *"Remember that refunds take 5 business days"* and later *"How long do refunds take?"*. With
+`COLLECTION_NAME` set, storing into that collection happens in one step and the collection is created on first use;
+any other collection keeps the dry-run-then-confirm flow. Without it, name the collection in your request.
 
+- The first text call downloads the model (about 90 MB, cached afterwards).
 - Default model `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions); change it with `EMBEDDING_MODEL`.
-- Layout matches the official server: a named vector `fast-<model>` and payload `{"document", "metadata"}`.
-- Without the extra, every other tool works and the text tools tell you how to install it.
+- Layout matches the official server: a named vector `fast-<model>` and payload `{"document", "metadata"}`, so both
+  servers can read and write the same collection.
+
+## Remote (HTTP) mode
+
+stdio is the default. To run it as a server that clients connect to over HTTP:
+
+```bash
+qdrant-full-mcp --transport streamable-http --port 8000   # endpoint http://127.0.0.1:8000/mcp
+qdrant-full-mcp --transport sse                           # older SSE clients
+```
+
+It binds to `127.0.0.1` by default. There is no built-in authentication and the server holds your Qdrant keys, so if
+you bind to another address (`--host 0.0.0.0`), put an authenticating proxy in front of it.
 
 ## Example prompts
 
@@ -155,20 +172,21 @@ overwrites), `create_backup_schedule`, `delete_backup_schedule`, `create_databas
 **Data, changes things:** `create_collection` (single, named and sparse vectors), `delete_collection`,
 `create_payload_index`, `delete_payload_index`, `upsert_points`, `delete_points`
 
-**Text, needs the `embed` extra:** `store_text` (embeds and upserts, creates the collection if missing), `find_text`
-(embeds the query and searches)
+**Text:** `store_text` (embeds and upserts, creates the collection if missing), `find_text` (embeds the query and
+searches)
 
 ## Compared with the official mcp-server-qdrant
 
 | | official `mcp-server-qdrant` | `qdrant-full-mcp` |
 |---|---|---|
-| Store and find text with built-in embeddings | yes | yes (`store_text`, `find_text`, optional extra) |
+| Store and find text with built-in embeddings | yes | yes (`store_text`, `find_text`) |
+| Default collection via `COLLECTION_NAME`, one-step store | yes | yes |
 | Cluster management (create, scale, suspend, delete) | no | yes |
 | Backups, schedules, restores, database API keys | no | yes |
 | Collections with named and sparse vectors, payload indexes | no | yes |
 | Dense, sparse and hybrid (RRF, DBSF) search with your own vectors | no | yes |
 | Dry run and confirmation on writes, read-only mode | read-only flag | yes |
-| Transports | stdio, SSE, streamable HTTP | stdio |
+| Transports | stdio, SSE, streamable HTTP | stdio, SSE, streamable HTTP |
 
 The text tools use the same collection layout, so the two servers can share a collection.
 
@@ -190,8 +208,10 @@ The text tools use the same collection layout, so the two servers can share a co
 | `QDRANT_API_KEY_<CLUSTER_ID>` | data tools | per-cluster key, wins over `QDRANT_API_KEY` |
 | `QDRANT_URL` | data tools | only without `cluster_id`, e.g. `http://localhost:6333` |
 | `QDRANT_MCP_MODULES` | optional | `cloud,data,text` (default) |
+| `COLLECTION_NAME` | text tools | default collection; stores into it skip the dry run |
 | `EMBEDDING_MODEL` | text tools | FastEmbed model, default `sentence-transformers/all-MiniLM-L6-v2` |
 | `QDRANT_MCP_READ_ONLY` | optional | `1` blocks writes |
+| `QDRANT_MCP_TRANSPORT` | optional | `stdio` (default), `sse` or `streamable-http`; same as `--transport` |
 | `QDRANT_CLOUD_API_URL` | optional | default `https://api.cloud.qdrant.io` |
 
 See `.env.example`. Never commit real values.
@@ -200,8 +220,9 @@ See `.env.example`. Never commit real values.
 
 Verified against the live Qdrant Cloud API on a free-tier cluster: cluster create and update, restart, suspend and
 unsuspend, database API keys, and the data tools (collections, named and sparse vectors, upsert, dense, sparse and
-hybrid search, payload indexes, deletes). The text tools (`store_text`, `find_text`) were verified end to end against a
-local Qdrant 1.19 with the real FastEmbed model; they have not been run against a Cloud cluster yet.
+hybrid search, payload indexes, deletes). The text tools were verified end to end through the MCP protocol (stdio and
+streamable HTTP) against a local Qdrant 1.19 with the real FastEmbed model, including a first run with an empty model
+cache; they have not been run against a Cloud cluster yet.
 
 Not verified live yet: backups, backup schedules and restores (free-tier clusters do not support them), and cluster
 delete. Test those on a throwaway paid cluster first.
@@ -215,7 +236,7 @@ spaces; embedding models other than FastEmbed's (for the other tools, bring your
 ## Development
 
 ```bash
-pip install -e ".[dev,embed]"
+pip install -e ".[dev]"
 pytest
 ```
 
@@ -224,4 +245,4 @@ parameters (e.g. `page_size`) and accepts camelCase JSON bodies.
 
 ## License
 
-MIT
+MIT. Unofficial community project, not affiliated with or endorsed by Qdrant. "Qdrant" is a trademark of its owner.
