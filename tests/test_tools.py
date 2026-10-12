@@ -1,3 +1,4 @@
+import json
 import httpx
 import pytest
 
@@ -9,7 +10,10 @@ PKG = "22222222-2222-2222-2222-222222222222"
 
 
 @pytest.fixture(autouse=True)
-def env(monkeypatch):
+def env(monkeypatch, tmp_path):
+    from qdrant_full_mcp import keystore
+    monkeypatch.setenv("QDRANT_MCP_KEY_FILE", str(tmp_path / "keys.json"))  # never touch the real key file
+    monkeypatch.setattr(keystore, "_session", {})
     monkeypatch.setenv("QDRANT_CLOUD_API_KEY", "k")
     monkeypatch.setenv("QDRANT_CLOUD_ACCOUNT_ID", ACCT)
     monkeypatch.setenv("QDRANT_URL", "http://qdrant.test:6333")
@@ -606,3 +610,100 @@ def test_missing_index_error_explains_the_fix(monkeypatch):
     monkeypatch.setattr(common.httpx, "request", strict)
     with pytest.raises(ValueError, match=r"create_payload_index with field_name='metadata.topic', field_schema='keyword'"):
         data.count_points("c", filter={"must": [{"key": "metadata.topic", "match": {"value": "x"}}]})
+
+
+
+# ------------------------------------------------------ remembered db keys
+
+KEY_ID = "33333333-3333-3333-3333-333333333333"
+
+
+@pytest.fixture
+def cluster_routes(calls, monkeypatch):
+    common._endpoint_cache.clear()
+    monkeypatch.delenv("QDRANT_API_KEY")
+    calls.routes[("GET", f"/clusters/{CID}")] = {
+        "cluster": {"state": {"endpoint": {"url": "https://abc.cloud.qdrant.io", "restPort": 6333}}}}
+    calls.routes[("POST", "/database-api-keys")] = {"databaseApiKey": {"id": KEY_ID, "key": "s3cret"}}
+    return calls
+
+
+def test_created_key_works_immediately_without_saving(cluster_routes, tmp_path):
+    r = cloud.create_database_api_key(CID, "app key", access="manage", confirm=True)
+    assert r["remembered"]["mode"] == "session" and r["remembered"]["key_file"] is None
+    data.list_collections(cluster_id=CID)
+    assert cluster_routes[-1][2]["headers"]["api-key"] == "s3cret"
+    assert not (tmp_path / "keys.json").exists()
+
+
+def test_saved_key_survives_a_restart(cluster_routes, tmp_path):
+    from qdrant_full_mcp import keystore
+    r = cloud.create_database_api_key(CID, "app key", remember="save", confirm=True)
+    saved = json.loads((tmp_path / "keys.json").read_text())
+    assert saved[CID]["key"] == "s3cret" and saved[CID]["key_id"] == KEY_ID
+    assert r["remembered"]["key_file"] == str(tmp_path / "keys.json")
+    keystore._session.clear()  # new process
+    data.list_collections(cluster_id=CID)
+    assert cluster_routes[-1][2]["headers"]["api-key"] == "s3cret"
+    listed = cloud.list_remembered_keys()["keys"]
+    assert listed == [{"cluster_id": CID, "key_id": KEY_ID, "name": "app key", "where": "saved",
+                       "saved_at": saved[CID]["saved_at"]}]
+    assert "s3cret" not in json.dumps(cloud.list_remembered_keys())
+
+
+def test_remember_none_and_dry_run_keep_nothing(cluster_routes):
+    from qdrant_full_mcp import keystore
+    assert cloud.create_database_api_key(CID, "app key", remember="save")["dry_run"]
+    cloud.create_database_api_key(CID, "app key", remember="none", confirm=True)
+    assert keystore.get(CID) is None
+    with pytest.raises(ValueError):
+        cloud.create_database_api_key(CID, "app key", remember="forever")
+
+
+def test_env_key_wins_over_remembered(cluster_routes, monkeypatch):
+    cloud.create_database_api_key(CID, "app key", confirm=True)
+    monkeypatch.setenv("QDRANT_API_KEY_" + CID.replace("-", "_").upper(), "fromenv")
+    data.list_collections(cluster_id=CID)
+    assert cluster_routes[-1][2]["headers"]["api-key"] == "fromenv"
+
+
+def test_deleting_key_or_cluster_forgets_it(cluster_routes, tmp_path):
+    from qdrant_full_mcp import keystore
+    cloud.create_database_api_key(CID, "app key", remember="save", confirm=True)
+    cloud.delete_database_api_key(CID, "44444444-4444-4444-4444-444444444444", confirm=True)  # other key
+    assert keystore.get(CID) == "s3cret"
+    r = cloud.delete_database_api_key(CID, KEY_ID, confirm=True)
+    assert r["forgotten_locally"] == {"session": True, "saved": True} and keystore.get(CID) is None
+    cloud.create_database_api_key(CID, "app key", remember="save", confirm=True)
+    cluster_routes.routes[("GET", f"/clusters/{CID}")]["cluster"]["name"] = "tmp"
+    cloud.delete_cluster(CID, confirm_cluster_name="tmp")
+    assert keystore.get(CID) is None and json.loads((tmp_path / "keys.json").read_text()) == {}
+
+
+def test_forget_tool_does_not_call_qdrant(cluster_routes):
+    from qdrant_full_mcp import keystore
+    cloud.create_database_api_key(CID, "app key", confirm=True)
+    n = len(cluster_routes)
+    assert cloud.forget_database_api_key(CID)["forgotten"]["session"] is True
+    assert keystore.get(CID) is None and len(cluster_routes) == n
+
+
+def test_rejected_remembered_key_explains(cluster_routes, monkeypatch):
+    cloud.create_database_api_key(CID, "app key", confirm=True)
+    real = common.httpx.request
+
+    def deny(method, url, **kw):
+        if "abc.cloud.qdrant.io" in url:
+            return httpx.Response(401, json={"status": {"error": "Unauthorized"}}, request=httpx.Request(method, url))
+        return real(method, url, **kw)
+    monkeypatch.setattr(common.httpx, "request", deny)
+    with pytest.raises(ValueError, match="remembered key for this cluster was rejected"):
+        data.list_collections(cluster_id=CID)
+
+
+def test_key_file_off_disables_saving(cluster_routes, monkeypatch):
+    monkeypatch.setenv("QDRANT_MCP_KEY_FILE", "off")
+    r = cloud.create_database_api_key(CID, "app key", remember="save", confirm=True)
+    assert "disabled" in r["remembered"]["error"] and r["remembered"]["mode"] == "session"
+    data.list_collections(cluster_id=CID)  # still usable this session
+    assert cluster_routes[-1][2]["headers"]["api-key"] == "s3cret"
