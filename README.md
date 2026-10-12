@@ -157,11 +157,11 @@ claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=your-management-key -- uv run --pr
 
 ```mermaid
 flowchart LR
-    A["Claude Code · Codex · Cursor · VS Code"] -- "MCP (stdio / HTTP)" --> B["qdrant-full-mcp"]
-    B -- "Cloud management key" --> C["Qdrant Cloud API<br/>clusters · backups · keys"]
-    B -- "database key<br/>(created and remembered)" --> D["Qdrant cluster<br/>collections · search"]
-    B -- "QDRANT_LOCAL_PATH" --> E["Local Qdrant<br/>no server needed"]
-    B -. "FastEmbed" .-> F["Local embeddings<br/>store_text · find_text"]
+    A["Claude Code, Codex, Cursor, VS Code"] -->|"MCP: stdio or HTTP"| B["qdrant-full-mcp"]
+    B -->|"Cloud management key"| C["Qdrant Cloud API<br/>clusters, backups, keys"]
+    B -->|"database key, created and remembered"| D["Qdrant cluster<br/>collections, search"]
+    B -->|"QDRANT_LOCAL_PATH"| E["Local Qdrant<br/>no server needed"]
+    B -.->|"FastEmbed"| F["Local embeddings<br/>store_text, find_text"]
 ```
 
 - **Two credentials, handled for you.** The Cloud management key runs infrastructure; Qdrant does not let it read
