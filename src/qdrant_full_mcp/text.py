@@ -15,7 +15,7 @@ import os
 import uuid as _uuid
 from typing import Any, Optional, Union
 
-from .common import QdrantError, data_call, require_writable, segment, tool
+from .common import QdrantError, data_call, mcp, require_writable, segment, tool
 from .datautil import PointId, _col, _ids, _limit, _result
 
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -64,6 +64,15 @@ def embed(texts: list[str], model: Optional[str] = None) -> list[list[float]]:
     """Embed texts; returns one list of floats per text. (Replaced in tests.)"""
     m = _load(model or model_name())
     return [[float(x) for x in v] for v in m.embed(texts)]
+
+
+def search_limit() -> int:
+    raw = os.environ.get("QDRANT_SEARCH_LIMIT", "").strip()
+    if not raw:
+        return 5
+    if not raw.isdigit() or not 1 <= int(raw) <= 100:
+        raise QdrantError("QDRANT_SEARCH_LIMIT must be a whole number 1..100.")
+    return int(raw)
 
 
 def default_collection() -> Optional[str]:
@@ -166,16 +175,16 @@ def store_text(texts: Union[str, list[str]], collection: Optional[str] = None,
 
 
 @tool
-def find_text(query: str, collection: Optional[str] = None, limit: int = 5, filter: Optional[dict] = None,
+def find_text(query: str, collection: Optional[str] = None, limit: Optional[int] = None, filter: Optional[dict] = None,
               score_threshold: Optional[float] = None, cluster_id: Optional[str] = None) -> Any:
     """Semantic search by plain text (recall something): embeds the query locally and returns the closest stored
     texts with score and metadata. collection defaults to COLLECTION_NAME. Works on collections made by store_text or by
     the official mcp-server-qdrant with the same model. Optional Qdrant filter narrows candidates, e.g.
-    {"must":[{"key":"metadata.topic","match":{"value":"billing"}}]}."""
+    {"must":[{"key":"metadata.topic","match":{"value":"billing"}}]}. limit defaults to QDRANT_SEARCH_LIMIT or 5."""
     if not isinstance(query, str) or not query.strip() or len(query) > MAX_TEXT_CHARS:
         raise QdrantError("query must be a non-empty string.")
     collection = _collection(collection)
-    _limit(limit)
+    limit = _limit(limit if limit is not None else search_limit())
     name = vector_name()
     vectors = _vectors_config(collection, cluster_id)
     if vectors is None:
@@ -195,3 +204,16 @@ def find_text(query: str, collection: Optional[str] = None, limit: int = 5, filt
     return [{"id": p.get("id"), "score": p.get("score"),
              "document": (p.get("payload") or {}).get("document"),
              "metadata": (p.get("payload") or {}).get("metadata")} for p in points]
+
+
+def _apply_custom_descriptions() -> None:
+    """TOOL_STORE_DESCRIPTION / TOOL_FIND_DESCRIPTION replace the tool descriptions (same names as the official server),
+    e.g. to make the model use the memory for code snippets only."""
+    for tool_name, var in (("store_text", "TOOL_STORE_DESCRIPTION"), ("find_text", "TOOL_FIND_DESCRIPTION")):
+        text = os.environ.get(var, "").strip()
+        registered = mcp._tool_manager.get_tool(tool_name)
+        if text and registered is not None:
+            registered.description = text
+
+
+_apply_custom_descriptions()
