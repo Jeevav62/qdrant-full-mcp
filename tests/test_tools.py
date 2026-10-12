@@ -18,6 +18,9 @@ def env(monkeypatch):
     monkeypatch.delenv("QDRANT_CLOUD_READ_ONLY", raising=False)
     monkeypatch.delenv("COLLECTION_NAME", raising=False)
     monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    for var in ("QDRANT_LOCAL_PATH", "QDRANT_READ_ONLY", "QDRANT_SEARCH_LIMIT", "FASTMCP_SERVER_HOST",
+                "FASTMCP_SERVER_PORT", "FASTMCP_HOST", "FASTMCP_PORT", "QDRANT_MCP_TRANSPORT"):
+        monkeypatch.delenv(var, raising=False)
 
 
 @pytest.fixture
@@ -484,3 +487,112 @@ def test_transport_args(monkeypatch):
     monkeypatch.setenv("QDRANT_MCP_TRANSPORT", "bogus")
     with pytest.raises(SystemExit):
         server.parse_args([])
+
+
+
+# ------------------------------------------------------- official-name parity
+
+
+def test_official_read_only_name_blocks_writes(calls, monkeypatch):
+    monkeypatch.setenv("QDRANT_READ_ONLY", "true")
+    with pytest.raises(ValueError, match="read-only"):
+        data.upsert_points("c", [{"id": 1, "vector": [0.1]}], confirm=True)
+    assert not calls
+
+
+def test_official_host_port_names(monkeypatch):
+    from qdrant_full_mcp import server
+    monkeypatch.setenv("FASTMCP_SERVER_HOST", "0.0.0.0")
+    monkeypatch.setenv("FASTMCP_SERVER_PORT", "9100")
+    monkeypatch.setenv("FASTMCP_HOST", "10.0.0.1")
+    a = server.parse_args([])
+    assert (a.host, a.port) == ("0.0.0.0", 9100)
+
+
+def test_non_loopback_http_drops_localhost_host_pin(monkeypatch, capsys):
+    from qdrant_full_mcp import server
+    monkeypatch.setattr(server.mcp.settings, "transport_security", "pinned")
+    server.configure_http("127.0.0.1", 8000)
+    assert server.mcp.settings.transport_security == "pinned"
+    server.configure_http("0.0.0.0", 8000)
+    assert server.mcp.settings.transport_security is None
+    assert "without authentication" in capsys.readouterr().err
+
+
+def test_search_limit_env(calls, fake_embed, monkeypatch):
+    from qdrant_full_mcp import text
+    calls.routes[("GET", "/collections/n/exists")] = {"result": {"exists": True}}
+    calls.routes[("GET", "/collections/n")] = {"result": {"config": {"params": {"vectors": {
+        "fast-all-minilm-l6-v2": {"size": 3}}}}}}
+    calls.routes[("POST", "/collections/n/points/query")] = {"result": {"points": []}}
+    text.find_text("q", collection="n")
+    monkeypatch.setenv("QDRANT_SEARCH_LIMIT", "12")
+    text.find_text("q", collection="n")
+    text.find_text("q", collection="n", limit=2)
+    limits = [c[2]["json"]["limit"] for c in calls if c[1].endswith("/points/query")]
+    assert limits == [5, 12, 2]
+    monkeypatch.setenv("QDRANT_SEARCH_LIMIT", "lots")
+    with pytest.raises(ValueError, match="QDRANT_SEARCH_LIMIT"):
+        text.find_text("q", collection="n")
+
+
+def test_custom_tool_descriptions():
+    import os, subprocess, sys
+    code = ("from qdrant_full_mcp import server; server.load_modules(); "
+            "t = {x.name: x.description for x in server.mcp._tool_manager.list_tools()}; "
+            "print(t['store_text']); print(t['find_text'])")
+    env = {**os.environ, "QDRANT_MCP_MODULES": "text", "TOOL_STORE_DESCRIPTION": "Save a code snippet.",
+           "TOOL_FIND_DESCRIPTION": "Find a code snippet."}
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True, env=env).stdout
+    assert out.splitlines() == ["Save a code snippet.", "Find a code snippet."]
+
+
+# -------------------------------------------------------------- local mode
+
+
+@pytest.fixture
+def local_mode(monkeypatch):
+    from qdrant_full_mcp import local
+    monkeypatch.delenv("QDRANT_URL", raising=False)
+    monkeypatch.setenv("QDRANT_LOCAL_PATH", ":memory:")
+    monkeypatch.setattr(local, "_client", None)
+    yield local
+    if local._client is not None:
+        local._client.close()
+
+
+def test_local_mode_data_tools_without_http(local_mode, calls):
+    data.create_collection("c", vector_size=2, confirm=True)
+    data.upsert_points("c", [{"id": 1, "vector": [1, 0], "payload": {"k": "a"}},
+                             {"id": 2, "vector": [0, 1], "payload": {"k": "b"}}], confirm=True)
+    assert data.count_points("c")["count"] == 2
+    assert data.query_points("c", vector=[0.1, 0.9], limit=1)["points"][0]["id"] == 2
+    assert data.scroll_points("c", filter={"must": [{"key": "k", "match": {"value": "a"}}]})["points"][0]["id"] == 1
+    data.delete_points("c", ids=[1], confirm=True)
+    assert data.count_points("c")["count"] == 1
+    data.delete_collection("c", "c")
+    assert data.list_collections() == {"collections": []}
+    assert not calls  # nothing went over HTTP
+
+
+def test_local_mode_text_tools(local_mode, fake_embed, monkeypatch):
+    from qdrant_full_mcp import text
+    monkeypatch.setenv("COLLECTION_NAME", "mem")
+    out = text.store_text("hello", metadata={"a": 1})
+    assert out["collection_created"] is True
+    hits = text.find_text("hi")
+    assert hits[0]["document"] == "hello" and hits[0]["metadata"] == {"a": 1}
+
+
+def test_local_mode_errors(local_mode, monkeypatch):
+    with pytest.raises(ValueError, match="does not exist"):
+        data.get_collection("missing")
+    monkeypatch.setenv("QDRANT_URL", "http://x")
+    with pytest.raises(ValueError, match="not both"):
+        data.list_collections()
+
+
+def test_local_mode_unsupported_route(local_mode):
+    from qdrant_full_mcp import local
+    with pytest.raises(common.QdrantError, match="Not available in local mode"):
+        local.request("POST", "/collections/c/points/recommend", {})

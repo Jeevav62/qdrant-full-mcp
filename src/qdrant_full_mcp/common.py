@@ -56,11 +56,16 @@ def acct() -> str:
     return _account_cache[key]
 
 
+READ_ONLY_VARS = ("QDRANT_MCP_READ_ONLY", "QDRANT_READ_ONLY", "QDRANT_CLOUD_READ_ONLY")  # QDRANT_READ_ONLY: official name
+
+
+def read_only() -> bool:
+    return any(os.environ.get(v, "").strip().lower() in ("1", "true", "yes") for v in READ_ONLY_VARS)
+
+
 def require_writable() -> None:
-    if os.environ.get("QDRANT_MCP_READ_ONLY", os.environ.get("QDRANT_CLOUD_READ_ONLY", "")).lower() in (
-        "1", "true", "yes",
-    ):
-        raise QdrantError("Server is in read-only mode (QDRANT_MCP_READ_ONLY is set).")
+    if read_only():
+        raise QdrantError("Server is in read-only mode (QDRANT_MCP_READ_ONLY or QDRANT_READ_ONLY is set).")
 
 
 # -------------------------------------------------------------- validation
@@ -163,15 +168,21 @@ def data_call(method: str, path: str, *, params: Optional[dict] = None, body: An
     """Call a Qdrant database (REST).
 
     With cluster_id: endpoint is looked up from the Cloud API and the key comes from QDRANT_API_KEY_<ID>/QDRANT_API_KEY.
-    Without: QDRANT_URL + QDRANT_API_KEY (key optional, for local Qdrant).
+    Without: QDRANT_LOCAL_PATH (in-process database, see local.py), or QDRANT_URL + QDRANT_API_KEY (key optional).
     """
     if cluster_id:
         url, key = cluster_endpoint(cluster_id), cluster_key(cluster_id)
+    elif os.environ.get("QDRANT_LOCAL_PATH", "").strip():
+        if os.environ.get("QDRANT_URL", "").strip():
+            raise QdrantError("Set either QDRANT_URL or QDRANT_LOCAL_PATH, not both.")
+        from . import local
+        return local.request(method, path, body)
     else:
         url = os.environ.get("QDRANT_URL", "").strip().rstrip("/")
         if not url:
             raise QdrantError("QDRANT_URL is not set (e.g. https://<cluster>.cloud.qdrant.io:6333 or "
-                              "http://localhost:6333). Alternatively pass cluster_id to use a Cloud cluster.")
+                              "http://localhost:6333). Alternatively pass cluster_id to use a Cloud cluster, or set "
+                              "QDRANT_LOCAL_PATH to a folder to run without a server.")
         if not re.match(r"^https?://", url):
             raise QdrantError("QDRANT_URL must start with http:// or https://")
         key = os.environ.get("QDRANT_API_KEY", "").strip()
