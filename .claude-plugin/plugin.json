@@ -1,6 +1,6 @@
 {
   "name": "qdrant",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Manage Qdrant Cloud (clusters, backups, API keys) and work with Qdrant collections and points from Claude Code.",
   "author": { "name": "Jeevav62", "url": "https://github.com/Jeevav62" },
   "repository": "https://github.com/Jeevav62/qdrant-full-mcp",

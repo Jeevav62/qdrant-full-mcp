@@ -1,6 +1,6 @@
 [project]
 name = "qdrant-full-mcp"
-version = "0.4.0"
+version = "0.4.1"
 description = "The complete Qdrant MCP server: manage Qdrant Cloud (clusters, backups, API keys) and your vector data (collections, hybrid search, text memory) from Claude Code, Codex, Cursor or any MCP client."
 readme = "README.md"
 requires-python = ">=3.10"
