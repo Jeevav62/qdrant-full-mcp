@@ -180,7 +180,9 @@ def find_text(query: str, collection: Optional[str] = None, limit: Optional[int]
     """Semantic search by plain text (recall something): embeds the query locally and returns the closest stored
     texts with score and metadata. collection defaults to COLLECTION_NAME. Works on collections made by store_text or by
     the official mcp-server-qdrant with the same model. Optional Qdrant filter narrows candidates, e.g.
-    {"must":[{"key":"metadata.topic","match":{"value":"billing"}}]}. limit defaults to QDRANT_SEARCH_LIMIT or 5."""
+    {"must":[{"key":"metadata.topic","match":{"value":"billing"}}]}. On Qdrant Cloud a filtered field needs a payload
+    index first: create_payload_index(collection, "metadata.topic", "keyword"). limit defaults to QDRANT_SEARCH_LIMIT
+    or 5."""
     if not isinstance(query, str) or not query.strip() or len(query) > MAX_TEXT_CHARS:
         raise QdrantError("query must be a non-empty string.")
     collection = _collection(collection)

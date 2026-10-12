@@ -112,7 +112,13 @@ def _raise_for(r: httpx.Response, what: str) -> None:
         403: " (forbidden: the key lacks permission, or the feature is not available on this plan)",
         404: " (not found)",
     }.get(r.status_code, "")
-    raise QdrantError(f"{what} {r.status_code}{hint}: {str(detail)[:500]}")
+    message = f"{what} {r.status_code}{hint}: {str(detail)[:500]}"
+    # Qdrant Cloud runs in strict mode: filtering on a field needs a payload index first.
+    missing = re.search(r'Index required but not found for "([^"]+)" of one of the following types: \[(\w+)', str(detail))
+    if missing:
+        message += (f" Fix: call create_payload_index with field_name='{missing.group(1)}', "
+                    f"field_schema='{missing.group(2)}' (once per collection), then retry.")
+    raise QdrantError(message)
 
 
 def _send(method: str, url: str, headers: dict, params: Optional[dict], body: Any, what: str) -> Any:
