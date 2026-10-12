@@ -1,6 +1,6 @@
 ---
 name: qdrant
-description: Use when the user wants to manage Qdrant Cloud (clusters, regions, packages, backups, database API keys) or work with Qdrant collections and points (create collections, upsert, search, hybrid search, payload indexes) through the qdrant MCP tools.
+description: Use when the user wants to manage Qdrant Cloud (clusters, regions, packages, backups, database API keys) or work with Qdrant collections and points (create collections, upsert, search, hybrid search, payload indexes, store and find plain text) through the qdrant MCP tools.
 ---
 
 # Working with Qdrant through the qdrant MCP tools
@@ -24,6 +24,7 @@ description: Use when the user wants to manage Qdrant Cloud (clusters, regions, 
 - Prefer `restore_backup_to_new_cluster` over `restore_backup` (which overwrites the original).
 - A new database API key's secret is shown once. Tell the user to store it; do not repeat it.
 - Prefer least privilege: `read_only` keys, or per-collection rules.
-- Vectors are never produced by this server. If the user needs text search, they must supply embeddings.
+- For plain text ("remember this", "what do we know about X") use `store_text` and `find_text`; they embed text
+  locally, no vectors needed. `upsert_points`/`query_points` are for ready-made vectors.
 - Hybrid search needs a collection with a named dense vector and a named sparse vector
   (`create_collection` with `named_vectors` and `sparse_vectors`).
