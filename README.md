@@ -134,6 +134,8 @@ any other collection keeps the dry-run-then-confirm flow. Without it, name the c
   snippet with its description"*, to turn the memory into something specific. `QDRANT_SEARCH_LIMIT` sets the default
   number of results (5).
 - The first text call downloads the model (about 90 MB, cached afterwards).
+- Filtering on Qdrant Cloud: Cloud clusters require a payload index on any field you filter by. Ask *"add a keyword
+  index on metadata.topic in memory"* once; if you forget, the error tells the model the exact call that fixes it.
 - Default model `sentence-transformers/all-MiniLM-L6-v2` (384 dimensions); change it with `EMBEDDING_MODEL`.
 - Layout matches the official server: a named vector `fast-<model>` and payload `{"document", "metadata"}`, so both
   servers can read and write the same collection.
@@ -243,8 +245,10 @@ unsuspend, database API keys, and the data tools (collections, named and sparse 
 hybrid search, payload indexes, deletes). The text tools were verified end to end through the MCP protocol (stdio and
 streamable HTTP) against a local Qdrant 1.19 with the real FastEmbed model, including a first run with an empty model
 cache. Local mode (`QDRANT_LOCAL_PATH`) was verified for every data tool, including dense, sparse and hybrid search, and
-through the MCP protocol; the Docker image was verified over HTTP from a second container. The text tools have not been
-run against a Cloud cluster yet.
+through the MCP protocol; the Docker image was verified over HTTP from a second container. The text tools and data tools were also verified on a
+Qdrant Cloud cluster: 26 checks covering store/find, metadata filters, default collection, read-only mode, named and
+sparse collections, payload indexes, dense, sparse and hybrid search, deletes, and a stdio server process calling
+`find_text` on Cloud.
 
 Not verified live yet: backups, backup schedules and restores (free-tier clusters do not support them), and cluster
 delete. Test those on a throwaway paid cluster first.
