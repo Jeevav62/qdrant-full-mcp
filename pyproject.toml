@@ -1,11 +1,11 @@
 [project]
 name = "qdrant-full-mcp"
 version = "0.4.0"
-description = "MCP server for Qdrant: Qdrant Cloud account management (clusters, backups, API keys) plus data-plane tools (collections, points, hybrid search) and plain-text memory with local embeddings."
+description = "The complete Qdrant MCP server: manage Qdrant Cloud (clusters, backups, API keys) and your vector data (collections, hybrid search, text memory) from Claude Code, Codex, Cursor or any MCP client."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-keywords = ["mcp", "qdrant", "qdrant-cloud", "vector-database", "claude"]
+keywords = ["mcp", "mcp-server", "model-context-protocol", "qdrant", "qdrant-cloud", "vector-database", "rag", "hybrid-search", "semantic-search", "embeddings", "fastembed", "claude", "claude-code", "codex", "cursor", "ai-agents"]
 classifiers = [
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
@@ -40,3 +40,6 @@ packages = ["src/qdrant_full_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.hatch.build.targets.sdist]
+exclude = ["docs/"]

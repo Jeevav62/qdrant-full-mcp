@@ -1,0 +1,24 @@
+# qdrant-full-mcp
+
+> Open-source Model Context Protocol (MCP) server for the Qdrant vector database. Lets AI agents such as Claude Code, OpenAI Codex, Cursor and VS Code manage Qdrant Cloud (clusters, backups, database API keys) and work with Qdrant data (collections, dense, sparse and hybrid search, payload indexes, plain-text memory with local FastEmbed embeddings). Superset of the official mcp-server-qdrant. MIT licensed, unofficial, not affiliated with Qdrant.
+
+Install: `uvx qdrant-full-mcp` (PyPI package `qdrant-full-mcp`, Python 3.10+). Only required setting: `QDRANT_CLOUD_API_KEY` (Qdrant Cloud management key). Claude Code: `claude mcp add qdrant -e QDRANT_CLOUD_API_KEY=KEY -- uvx qdrant-full-mcp`. Codex: `codex mcp add qdrant --env QDRANT_CLOUD_API_KEY=KEY -- uvx qdrant-full-mcp`.
+
+Key facts:
+- 43 tools: Cloud management (create/scale/suspend/restart/delete clusters, regions, packages, backups, backup schedules, restores, database API keys), data (collections with named and sparse vectors, payload indexes, upsert, count, scroll, dense/sparse query, hybrid query with RRF or DBSF fusion), text (`store_text`, `find_text`).
+- Database keys created by the agent are remembered per cluster (session, or saved to a local key file on request), so data tools work without config edits or restarts.
+- Safety: every change is a dry run until `confirm=true`; deletes and in-place restores need the exact resource name; `QDRANT_MCP_READ_ONLY=1` blocks writes.
+- Runs without a server via `QDRANT_LOCAL_PATH`; transports stdio, SSE, streamable HTTP; Docker image.
+- Text memory uses the same collection layout as the official mcp-server-qdrant (named vector `fast-<model>`, payload `document` and `metadata`).
+
+## Docs
+
+- [README](https://github.com/Jeevav62/qdrant-full-mcp/blob/main/README.md): quick start for each client, features, comparison with the official server, configuration, FAQ
+- [Environment variables example](https://github.com/Jeevav62/qdrant-full-mcp/blob/main/.env.example)
+- [Claude Code skill](https://github.com/Jeevav62/qdrant-full-mcp/blob/main/skills/qdrant/SKILL.md): safe workflows for agents
+
+## Links
+
+- [PyPI](https://pypi.org/project/qdrant-full-mcp/)
+- [GitHub](https://github.com/Jeevav62/qdrant-full-mcp)
+- [Releases](https://github.com/Jeevav62/qdrant-full-mcp/releases)
