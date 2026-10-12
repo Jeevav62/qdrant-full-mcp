@@ -1,7 +1,10 @@
 """Text-in, text-out tools: store_text and find_text.
 
 Embeds with FastEmbed locally (the same approach as the official mcp-server-qdrant), so you can store and search
-plain text without making vectors yourself. Needs the optional extra: pip install "qdrant-full-mcp[embed]".
+plain text without making vectors yourself.
+
+Set COLLECTION_NAME to use one default "memory" collection: tools then need no collection argument and store_text
+writes to it in one step, like the official server. Other collections keep the dry-run-then-confirm flow.
 
 Layout matches the official server so collections are interchangeable: one named dense vector called
 "fast-<model>" (default fast-all-minilm-l6-v2), payload {"document": text, "metadata": {...}}.
@@ -10,7 +13,7 @@ from __future__ import annotations
 
 import os
 import uuid as _uuid
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 from .common import QdrantError, data_call, require_writable, segment, tool
 from .datautil import PointId, _col, _ids, _limit, _result
@@ -31,15 +34,25 @@ def vector_name(model: Optional[str] = None) -> str:
     return "fast-" + (model or model_name()).split("/")[-1].lower()
 
 
+def preload() -> None:
+    """Import FastEmbed and its native libraries (numpy, onnxruntime) up front.
+
+    Must run before the stdio transport starts: on Windows, loading a DLL while the transport's reader thread is
+    blocked on the stdin pipe can deadlock, which would hang the first store_text/find_text call forever.
+    """
+    try:
+        import fastembed  # noqa: F401
+    except ImportError:
+        pass  # reported with an install hint on first use
+
+
 def _load(model: str) -> Any:
     if model not in _models:
         try:
             from fastembed import TextEmbedding
         except ImportError:
-            raise QdrantError(
-                "Text embedding needs the optional 'embed' extra. Install it with: "
-                'uvx --from "qdrant-full-mcp[embed]" qdrant-full-mcp  (or pip install "qdrant-full-mcp[embed]").'
-            ) from None
+            raise QdrantError("Text embedding needs FastEmbed, which is missing from this install. "
+                              "Reinstall qdrant-full-mcp, or run: pip install fastembed") from None
         try:
             _models[model] = TextEmbedding(model_name=model)
         except Exception as e:  # unknown model name, download failure
@@ -53,7 +66,21 @@ def embed(texts: list[str], model: Optional[str] = None) -> list[list[float]]:
     return [[float(x) for x in v] for v in m.embed(texts)]
 
 
+def default_collection() -> Optional[str]:
+    return os.environ.get("COLLECTION_NAME", "").strip() or None
+
+
+def _collection(collection: Optional[str]) -> str:
+    name = collection or default_collection()
+    if not name:
+        raise QdrantError("No collection given and COLLECTION_NAME is not set.")
+    _col(name)
+    return name
+
+
 def _texts(texts: Any) -> list[str]:
+    if isinstance(texts, str):
+        texts = [texts]
     if (not isinstance(texts, list) or not 1 <= len(texts) <= MAX_TEXTS
             or not all(isinstance(t, str) and t.strip() and len(t) <= MAX_TEXT_CHARS for t in texts)):
         raise QdrantError(f"texts must be a list of 1..{MAX_TEXTS} non-empty strings (each <= {MAX_TEXT_CHARS} chars).")
@@ -91,21 +118,27 @@ def _check_size(vectors: Any, target: Optional[str], dim: int, collection: str) 
 
 
 @tool
-def store_text(collection: str, texts: list[str], metadata: Optional[list[dict]] = None,
-               ids: Optional[list[PointId]] = None, confirm: bool = False, cluster_id: Optional[str] = None) -> Any:
-    """Store plain text in Qdrant. The text is embedded locally (FastEmbed, default all-MiniLM-L6-v2, change with
-    EMBEDDING_MODEL), so no vectors are needed. Creates the collection if it does not exist. Each text becomes a point
-    with payload {"document": text, "metadata": {...}}; ids are generated unless given.
-    metadata: optional list, one object per text. confirm=false = dry run (nothing embedded or written); when the user
-    clearly asked to store something, call with confirm=true directly. Max 256 texts per call."""
+def store_text(texts: Union[str, list[str]], collection: Optional[str] = None,
+               metadata: Union[dict, list[dict], None] = None, ids: Optional[list[PointId]] = None,
+               confirm: bool = False, cluster_id: Optional[str] = None) -> Any:
+    """Store plain text in Qdrant (remember something). The text is embedded locally (FastEmbed, default
+    all-MiniLM-L6-v2, change with EMBEDDING_MODEL), so no vectors are needed. Creates the collection if it does not
+    exist. texts: one string or a list (max 256). metadata: one object applied to every text, or a list with one
+    object per text.
+    Each text becomes a point with payload {"document": text, "metadata": {...}}; ids are generated unless given.
+    collection defaults to COLLECTION_NAME; writes to that default collection happen in one step. For any other
+    collection confirm=false is a dry run; when the user clearly asked to store something, pass confirm=true."""
     items = _texts(texts)
+    collection = _collection(collection)
+    if isinstance(metadata, dict):
+        metadata = [metadata] * len(items)
     if metadata is not None and (not isinstance(metadata, list) or len(metadata) != len(items)
                                  or not all(isinstance(m, dict) for m in metadata)):
         raise QdrantError("metadata must be a list of objects, one per text.")
     if ids is not None and len(_ids(ids)) != len(items):
         raise QdrantError("ids must have one id per text.")
     name = vector_name()
-    if not confirm:
+    if not confirm and collection != default_collection():
         return {"dry_run": True, "message": "Validated; nothing embedded or written. Call again with confirm=true.",
                 "collection": collection, "text_count": len(items), "model": model_name(), "vector_name": name}
     require_writable()
@@ -133,13 +166,15 @@ def store_text(collection: str, texts: list[str], metadata: Optional[list[dict]]
 
 
 @tool
-def find_text(collection: str, query: str, limit: int = 5, filter: Optional[dict] = None,
+def find_text(query: str, collection: Optional[str] = None, limit: int = 5, filter: Optional[dict] = None,
               score_threshold: Optional[float] = None, cluster_id: Optional[str] = None) -> Any:
-    """Semantic search by plain text: embeds the query locally and returns the closest stored texts with score and
-    metadata. Works on collections made by store_text (or by the official mcp-server-qdrant with the same model).
-    Optional Qdrant filter narrows candidates, e.g. {"must":[{"key":"metadata.topic","match":{"value":"billing"}}]}."""
+    """Semantic search by plain text (recall something): embeds the query locally and returns the closest stored
+    texts with score and metadata. collection defaults to COLLECTION_NAME. Works on collections made by store_text or by
+    the official mcp-server-qdrant with the same model. Optional Qdrant filter narrows candidates, e.g.
+    {"must":[{"key":"metadata.topic","match":{"value":"billing"}}]}."""
     if not isinstance(query, str) or not query.strip() or len(query) > MAX_TEXT_CHARS:
         raise QdrantError("query must be a non-empty string.")
+    collection = _collection(collection)
     _limit(limit)
     name = vector_name()
     vectors = _vectors_config(collection, cluster_id)

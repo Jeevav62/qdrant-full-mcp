@@ -14,7 +14,9 @@
         "QDRANT_CLOUD_API_KEY": "${QDRANT_CLOUD_API_KEY:-}",
         "QDRANT_CLOUD_ACCOUNT_ID": "${QDRANT_CLOUD_ACCOUNT_ID:-}",
         "QDRANT_URL": "${QDRANT_URL:-}",
-        "QDRANT_API_KEY": "${QDRANT_API_KEY:-}"
+        "QDRANT_API_KEY": "${QDRANT_API_KEY:-}",
+        "COLLECTION_NAME": "${COLLECTION_NAME:-}",
+        "EMBEDDING_MODEL": "${EMBEDDING_MODEL:-}"
       }
     }
   }
